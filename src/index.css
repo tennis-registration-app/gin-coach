@@ -39,7 +39,7 @@ summary:focus-visible {
 .app {
   max-width: 920px;
   margin: 0 auto;
-  padding: 0 12px calc(24px + env(safe-area-inset-bottom));
+  padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
 }
 h2 {
   font-family: var(--display);
@@ -431,6 +431,12 @@ p {
 }
 
 /* review */
+.rules .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
 .review .row {
   display: flex;
   gap: 10px;

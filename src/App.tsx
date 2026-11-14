@@ -514,6 +514,7 @@ function Progress({ version }: { version: number }) {
 
 function Rules({ settings, update, onClear }: { settings: Settings; update: (s: Settings) => void; onClear: () => void }) {
   const r = settings.rules;
+  const [confirming, setConfirming] = useState(false);
   return (
     <div className="rules">
       <h2>Coaching</h2>
@@ -561,15 +562,28 @@ function Rules({ settings, update, onClear }: { settings: Settings; update: (s: 
       <p className="note">The coach’s value model was trained on exactly these rules, so they are fixed in the app. If your table plays any of the assumed rules differently, the model needs retraining (see the README).</p>
 
       <h2>History</h2>
-      <button
-        type="button"
-        className="btn"
-        onClick={() => {
-          if (window.confirm('Delete all saved hands and statistics on this device?')) onClear();
-        }}
-      >
-        Delete saved hands and statistics
-      </button>
+      {confirming ? (
+        <div className="row">
+          <span className="note">Delete every saved hand and statistic on this device?</span>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => {
+              onClear();
+              setConfirming(false);
+            }}
+          >
+            Delete them
+          </button>
+          <button type="button" className="btn" onClick={() => setConfirming(false)}>
+            Keep them
+          </button>
+        </div>
+      ) : (
+        <button type="button" className="btn" onClick={() => setConfirming(true)}>
+          Delete saved hands and statistics
+        </button>
+      )}
     </div>
   );
 }

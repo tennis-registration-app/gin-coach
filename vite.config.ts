@@ -3,11 +3,13 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // Relative base so the build works at any GitHub Pages path.
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base: './',
+  build: { outDir: mode === 'artifact' ? 'dist-artifact' : 'dist' },
   plugins: [
     react(),
-    VitePWA({
+    // the hosted preview build (mode "artifact") cannot use a service worker
+    mode !== 'artifact' && VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
@@ -23,4 +25,4 @@ export default defineConfig({
       workbox: { globPatterns: ['**/*.{js,css,html,svg,json}'], maximumFileSizeToCacheInBytes: 4_000_000 },
     }),
   ],
-});
+}));
