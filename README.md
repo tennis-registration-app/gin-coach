@@ -1,32 +1,94 @@
-# React + TypeScript + Vite
+# Gin Coach
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Practice four-player partnership Oklahoma gin against bots, with a coach that grades every draw, discard and knock, tells you roughly how many points a mistake cost, and tracks which kinds of mistakes cost you the most over time.
 
-Currently, two official plugins are available:
+The app is a static web app (React, TypeScript, Vite). Everything runs in the browser, including the bots and the coach, and it works offline after the first load. Hands and statistics are saved on the device.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Table rules
 
-## React Compiler
+The engine implements one table's house rules (`HOUSE_RULES` in `src/engine/hand.ts`).
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- Four players in two partnerships. Two two-handed matchups are played at once and the team scores combine each hand. You alternate between the two opponents every hand. Partners are redrawn after each game.
+- First team to 200 wins. There are no box, game or shutout bonuses.
+- Oklahoma: the first upcard sets the highest count you can knock with (face cards count 10). An ace upcard means gin only. Spades do not double.
+- Gin scores 25 plus the opponent's deadwood. Eleven-card gin scores 50 plus deadwood. An undercut scores 10 plus the difference. A knock scores the difference.
+- You cannot see your partner's hand, but you see the result of their matchup once it finishes.
 
-## Expanding the Oxlint configuration
+Four details were assumed rather than confirmed, and are flagged in the app's Rules tab: no laying off against gin, the hand is a draw when two stock cards remain, the non-dealer is offered the upcard first, and the loser of your previous hand deals.
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+## How the coach works
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+The coach sees only what you see: your hand, the discard pile, the knock limit, the stock count, and the cards your opponent picked up, discarded or declined. A test (`src/coach/coach.test.ts`) confirms that shuffling the hidden cards between the opponent's hand and the stock never changes its advice.
+
+It rates each option in expected points for the hand, using two small neural networks trained on bot self-play under these exact rules:
+
+- a position model that estimates the result of the hand after each possible discard, from features such as deadwood, the number of live cards that would complete a meld, how many draws would let you knock or gin, how far the stock has run down, and how dangerous the discard is given what the opponent has shown;
+- a knock model that estimates the result of knocking now, including the chance of being undercut.
+
+Draw decisions are rated by looking one draw ahead: the value of taking the pile card against the average over every card that could come off the stock.
+
+A move is flagged only when the estimated loss is at least 1.5 points (3 for draw decisions) and larger than the coach's margin of error, which comes from the disagreement among three independently trained copies of each model. Closer calls are reported as close calls. Flagged mistakes are sorted into categories (discard-pile decisions, holding high cards, feeding the opponent, breaking up combinations, knocking too early, knocking too late), and the Progress tab shows points lost per hand in each.
+
+When the option is switched on, the advice also accounts for the game score and your partner's result, using a table of game-win chances built from simulated games to 200.
+
+## Measured results
+
+All figures are from `sim/` scripts under the house rules. Each deal is played twice with the seats swapped. Win percentages are of hands that were not draws.
+
+| Matchup | Hands | Hands won | Points per hand |
+| --- | --- | --- | --- |
+| Strong v Baseline | 10,000 | 56.6% (±0.5) | +6.6 |
+| Expert v Baseline | 3,000 | 58.2% (±0.9) | +7.6 |
+| Strong v Medium | 10,000 | 52.4% (±0.5) | +3.8 |
+| Medium v Baseline | 10,000 | 53.7% (±0.5) | +1.6 |
+| Expert v Strong | 3,000 | 50.1% (±0.9) | +0.2 |
+
+- Baseline is a port of the published policy of the EAAI 2021 Gin Rummy Challenge's `SimpleGinRummyPlayer` (take the pile card only if it melds, discard to the lowest deadwood, knock as soon as legal), adapted to the Oklahoma knock limit.
+- Medium is a hand-written rule-based bot. Strong follows the coach's discard and knock advice. Expert also uses the coach's one-draw lookahead.
+- The original target was 60% of hands against Baseline. The best bot reaches 58%. The models were trained to maximise points, not hands won, and the gain in points is larger than the gain in hands.
+- Coach validity: a bot that follows the coach's discard and knock advice beats the rule-based bot by 3.8 points a hand and Baseline by 6.6. The draw-decision lookahead added no measurable strength over the plain rule (Expert v Strong), which is why draw decisions are flagged only at a higher threshold.
+- Speed, on the build machine: a discard analysis takes under 1 ms and a draw analysis about 14 ms (median), so the coach runs on the main thread with no worker.
+
+## Limitations
+
+- The coach is a strong estimate, not a solved game. Its numbers are model predictions with a stated margin of error. The margin reflects disagreement among the models and does not capture mistakes they all share.
+- The models learned from bots that play like themselves. Advice assumes a competent opponent and does not adapt to a particular player's habits.
+- Opening take-or-pass decisions and holding a gin hand without declaring it are rated with rougher approximations.
+- The game-score adjustment treats your partner's unfinished hand as neutral.
+- If your table plays any rule differently, retrain the models (below) so the advice matches.
+
+## Development
+
+```
+npm install
+npm run dev        # local dev server
+npm test           # unit, property and game-flow tests
+npm run build      # production build in dist/
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Pushing to `main` runs the tests and deploys to GitHub Pages (`.github/workflows/deploy.yml`).
+
+### Layout
+
+- `src/engine/` rules engine: cards, meld search, hand flow, scoring. No UI dependencies.
+- `src/bots/` baseline, rule-based and trained bots.
+- `src/coach/` features, models, analysis, explanations, game-win table.
+- `src/game/` partnership game flow and local storage.
+- `src/App.tsx`, `src/index.css` the interface.
+- `sim/` simulation, training and measurement scripts.
+
+### Retraining the models
+
+Needs Python 3 with numpy and scikit-learn. Each round generates self-play hands with the current model, trains a new one, and measures it.
+
+```
+mkdir -p data
+npx tsx sim/gen.ts g0_1 40000 101 none 0.2      # first round uses the rule-based bot
+python3 sim/train.py data/model1.json g0_1
+sim/iterate.sh data/model1.json g1 45000        # repeat until the new model stops beating the old
+cp data/model_g1.json src/coach/model.json
+npx tsx sim/equity.ts src/coach/model.json 60000
+npx tsx sim/lv.ts src/coach/model.json 5000 strong simple
+```
+
+The shipped model was trained in three rounds, the last on about 2.7 million positions from 180,000 hands.

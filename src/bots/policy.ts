@@ -57,6 +57,8 @@ export interface HeuristicParams {
   connDecay: number;
   /** Points per unit of discard danger. */
   wDanger: number;
+  /** Points per unseen card that would pair up or sit next to a lone card. */
+  wSingle: number;
   /** Take a non-melding pile card if it lets us knock at once. */
   takeToKnock: boolean;
   /** After this many total discards, only knock when deadwood is at most lateKnockMax. */
@@ -69,11 +71,12 @@ export interface HeuristicParams {
 
 export const DEFAULT_PARAMS: HeuristicParams = {
   wConn: 2.2,
-  connDecay: 0.5,
-  wDanger: 9,
+  connDecay: 0.7,
+  wDanger: 3,
+  wSingle: 0.1,
   takeToKnock: true,
   lateTurn: 16,
-  lateKnockMax: 6,
+  lateKnockMax: 7,
   ginOuts: 99,
   ginMinStock: 99,
 };
@@ -161,6 +164,57 @@ export function danger(c: Card, st: Uint8Array, pUnseen: number): number {
   return d;
 }
 
+/** Chance that any given unseen card is in the opponent's hand (before inference). */
+export function oppHoldChance(s: HandState, p: number, st: Uint8Array): number {
+  let unseen = 0;
+  let oppKnown = 0;
+  for (let c = 0; c < 52; c++) {
+    if (st[c] === UNSEEN) unseen++;
+    else if (st[c] === OPP) oppKnown++;
+  }
+  return unseen > 0 ? Math.min(1, (s.hands[1 - p].length - oppKnown) / unseen) : 0;
+}
+
+export interface DiscardOption {
+  card: Card;
+  deadwoodAfter: number;
+  score: number;
+  outs: number;
+  danger: number;
+}
+
+/** Every legal discard for the player to move, scored by the heuristic (best first). */
+export function scoreDiscards(s: HandState, P: HeuristicParams = DEFAULT_PARAMS): DiscardOption[] {
+  const p = s.turn;
+  const hand = s.hands[p];
+  const st = cardStatus(s, p);
+  const pUnseen = oppHoldChance(s, p, st);
+  const stage = Math.max(0, Math.min(1, s.stock.length / 31));
+  const wConn = P.wConn * (1 - P.connDecay * (1 - stage));
+  const local = new Int16Array(11);
+  discardDeadwoods(hand, local);
+  const out: DiscardOption[] = [];
+  for (let i = 0; i < hand.length; i++) {
+    const c = hand[i];
+    if (c === s.justTaken) continue;
+    const outs = liveOuts(c, st);
+    const dg = danger(c, st, pUnseen);
+    out.push({ card: c, deadwoodAfter: local[i], outs, danger: dg, score: local[i] + wConn * outs + P.wDanger * dg + P.wSingle * stage * neighbours(c, st) });
+  }
+  return out.sort((a, b) => a.score - b.score);
+}
+
+/** Unseen cards of the same rank or adjacent in suit: how easily a card can start a combination. */
+export function neighbours(c: Card, st: Uint8Array): number {
+  const r = c % 13;
+  const base = c - r;
+  let n = 0;
+  for (let s2 = 0; s2 < 4; s2++) if (s2 * 13 + r !== c && st[s2 * 13 + r] === UNSEEN) n++;
+  if (r > 0 && st[base + r - 1] === UNSEEN) n++;
+  if (r < 12 && st[base + r + 1] === UNSEEN) n++;
+  return n;
+}
+
 export function makeHeuristic(params: HeuristicParams = DEFAULT_PARAMS, name = 'Heuristic'): Policy {
   const P = params;
   return {
@@ -223,12 +277,7 @@ export function makeHeuristic(params: HeuristicParams = DEFAULT_PARAMS, name = '
         }
         if (knock) return { type: 'discard', card: minCard, knock: true };
       }
-      let unseen = 0;
-      for (let c = 0; c < 52; c++) if (st[c] === UNSEEN) unseen++;
-      const oppHand = s.hands[1 - p].length; // hand size is public
-      let oppKnown = 0;
-      for (let c = 0; c < 52; c++) if (st[c] === OPP) oppKnown++;
-      const pUnseen = unseen > 0 ? Math.min(1, (oppHand - oppKnown) / unseen) : 0;
+      const pUnseen = oppHoldChance(s, p, st);
       const stage = Math.max(0, Math.min(1, s.stock.length / 31));
       const wConn = P.wConn * (1 - P.connDecay * (1 - stage));
       let bestScore = 1e9;
@@ -236,7 +285,7 @@ export function makeHeuristic(params: HeuristicParams = DEFAULT_PARAMS, name = '
       for (let i = 0; i < hand.length; i++) {
         const c = hand[i];
         if (c === s.justTaken) continue;
-        const score = dws[i] + wConn * liveOuts(c, st) + P.wDanger * danger(c, st, pUnseen);
+        const score = dws[i] + wConn * liveOuts(c, st) + P.wDanger * danger(c, st, pUnseen) + P.wSingle * stage * neighbours(c, st);
         if (score < bestScore - 1e-9) {
           bestScore = score;
           bestCard = c;

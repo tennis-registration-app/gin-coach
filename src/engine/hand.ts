@@ -77,6 +77,8 @@ export class HandState {
   discards: [Card[], Card[]] = [[], []];
   /** Top-of-pile cards each player declined (drew from stock or passed instead). */
   declined: [Card[], Card[]] = [[], []];
+  /** Number of times each player has taken from the discard pile. */
+  takes: [number, number] = [0, 0];
   turnsTaken = 0;
   result: HandResult | null = null;
   rules: Rules;
@@ -134,6 +136,7 @@ export class HandState {
     s.known = [this.known[0].slice(), this.known[1].slice()];
     s.discards = [this.discards[0].slice(), this.discards[1].slice()];
     s.declined = [this.declined[0].slice(), this.declined[1].slice()];
+    s.takes = [this.takes[0], this.takes[1]];
     s.turnsTaken = this.turnsTaken;
     s.result = this.result;
     return s;
@@ -190,6 +193,7 @@ export class HandState {
         const c = this.discard.pop()!;
         hand.push(c);
         this.known[p][c] = 1;
+        this.takes[p]++;
         this.justTaken = c;
         this.opening = 3;
         this.phase = 'discard';
