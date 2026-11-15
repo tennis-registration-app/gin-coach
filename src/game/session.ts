@@ -281,8 +281,8 @@ export class Session {
     g.them += themDelta;
     g.rounds.push({ us: usDelta, them: themDelta });
     if (g.us >= this.rules.target || g.them >= this.rules.target) g.over = true;
-    // loser of your matchup deals the next hand; after a draw the same dealer deals again
-    if (mine.winner >= 0) g.iDeal = mine.winner !== ME;
+    // winner of your matchup deals the next hand; after a draw the same dealer deals again
+    if (mine.winner >= 0) g.iDeal = mine.winner === ME;
     this.round = { mine, partner: this.partnerResult, usDelta, themDelta };
     this.analysis = null;
   }

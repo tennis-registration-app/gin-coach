@@ -16,7 +16,7 @@ The engine implements one table's house rules (`HOUSE_RULES` in `src/engine/hand
 - Gin scores 25 plus the opponent's deadwood. Eleven-card gin scores 50 plus deadwood. An undercut scores 10 plus the difference. A knock scores the difference.
 - You cannot see your partner's hand, but you see the result of their matchup once it finishes.
 
-Four details were assumed rather than confirmed, and are flagged in the app's Rules tab: no laying off against gin, the hand is a draw when two stock cards remain, the non-dealer is offered the upcard first, and the loser of your previous hand deals.
+The winner of your previous hand deals the next. Three details were assumed rather than confirmed, and are flagged in the app's Rules tab: no laying off against gin, the hand is a draw when two stock cards remain, and the non-dealer is offered the upcard first.
 
 ## How the coach works
 

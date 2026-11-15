@@ -589,7 +589,7 @@ function Rules({ settings, update, onClear }: { settings: Settings; update: (s: 
           Gin {r.ginBonus} plus deadwood. Eleven-card gin {r.bigGinBonus} plus deadwood. Undercut {r.undercutBonus} plus the difference. A knock scores the difference.
         </dd>
         <dt>Assumed</dt>
-        <dd>No laying off against gin. The hand is a draw when two stock cards remain. The loser of your last hand deals.</dd>
+        <dd>No laying off against gin. The hand is a draw when two stock cards remain. The winner of your last hand deals the next.</dd>
       </dl>
       <p className="note">The coach’s value model was trained on exactly these rules, so they are fixed in the app. If your table plays any of the assumed rules differently, the model needs retraining (see the README).</p>
 

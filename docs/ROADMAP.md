@@ -12,20 +12,19 @@ Items collected before and during alpha testing. Order and scope will be set onc
    In Review, after the hand, it also shows what the opponent actually held. Built from computed facts with written templates; no API, works offline. Covering all four checks each time is how it addresses the player's own reasoning without being told it; plain wording is acceptable. The short explanation shown on a flagged mistake should use the same four checks; today it reports only the first matching reason (for example deadwood alone).
    *Explore mode (before you commit):* with coaching switched on, tapping any card in your hand shows the coach's rating of discarding it (best, close to best, or roughly how many points it gives up) and the four checks for that card, before you press Discard. Tapping the stock or pile on a draw decision does the same. This replaces "Ask the coach first". Hands played with explore mode on are counted separately in Progress as aided hands, so unaided leak figures stay honest.
 2. **Hint shows ties.** When several plays are within the margin of error, the hint lists them as effectively equal instead of naming one.
-3. **Ask a follow-up (optional, low priority).** Conversational questions about a position through an AI API. Needs a small server to hold the key, costs a little per question, and does not work offline. The app must send the coach's computed facts and restrict the explanation to them. Only worth building if the Why button leaves questions unanswered.
-4. **Drag to arrange.** Drag-and-drop in the arrange-my-own-hand mode, if tapping Move proves slow.
+3. **Drag to arrange.** Drag-and-drop in the arrange-my-own-hand mode, if tapping Move proves slow.
 
-5. **Take back a move.** After the coach's verdict, a "Take it back" button returns you to the decision so you can try the better play. Rules: the first attempt is what counts in Progress, so statistics stay honest, and the retry is marked as a retry. Taking back a pile pickup or a discard reveals nothing new. Taking back a stock draw would show you a hidden card, so the unseen cards are reshuffled before you redraw. Available until the opponent has acted; taking back further than that is left for Review-based drills.
+4. **Take back a move.** After the coach's verdict, a "Take it back" button returns you to the decision so you can try the better play. Rules: the first attempt is what counts in Progress, so statistics stay honest, and the retry is marked as a retry. Taking back a pile pickup or a discard reveals nothing new. Taking back a stock draw would show you a hidden card, so the unseen cards are reshuffled before you redraw. Available until the opponent has acted; taking back further than that is left for Review-based drills.
 
 ## From the review of other gin apps
 
-6. **Drills.** Replay positions you got wrong; endless knock-or-wait and discard drills, weighted toward your biggest leak categories.
-7. **Short lessons for these table rules.** Taken from what the trained model does (for example knock timing by upcard), not from general book advice.
-8. **Card-tracking aid and memory trainer, in three levels.** (a) Open pile: the whole discard pile laid out in order, marked by who threw each card, alongside the cards you have seen your opponent take. (b) Top card only, as at a real table, with a "check the pile" peek that is counted. (c) No aids, with occasional mid-hand quizzes on which cards are gone. The Progress tab notes which level each hand was played at.
-9. **History export and cross-device statistics.** Export and import first; sync through a small backend later.
-10. **Enter a real hand.** Record a hand from an actual game for a post-mortem.
-11. **Opponents with human styles.** Early knocker, gin chaser, speculative picker.
-12. **Rule variants.** One retraining run per rule set.
+5. **Drills.** Replay positions you got wrong; endless knock-or-wait and discard drills, weighted toward your biggest leak categories.
+6. **Short lessons for these table rules.** Taken from what the trained model does (for example knock timing by upcard), not from general book advice.
+7. **Card-tracking aid and memory trainer, in three levels.** (a) Open pile: the whole discard pile laid out in order, marked by who threw each card, alongside the cards you have seen your opponent take. (b) Top card only, as at a real table, with a "check the pile" peek that is counted. (c) No aids, with occasional mid-hand quizzes on which cards are gone. The Progress tab notes which level each hand was played at.
+8. **History export and cross-device statistics.** Export and import first; sync through a small backend later.
+9. **Enter a real hand.** Record a hand from an actual game for a post-mortem.
+10. **Opponents with human styles.** Early knocker, gin chaser, speculative picker.
+11. **Rule variants.** One retraining run per rule set.
 
 ## Done
 
@@ -33,4 +32,9 @@ Items collected before and during alpha testing. Order and scope will be set onc
 - Option to arrange your own hand (tap, then Move).
 - Explanations count only real outs: a partner already locked in a better meld no longer creates a false out.
 - Hand log capitalisation.
+- Winner of the previous hand deals (was loser).
+
+## Dropped
+
+- Ask a follow-up through an AI API. Explanations stay inside the app.
 
