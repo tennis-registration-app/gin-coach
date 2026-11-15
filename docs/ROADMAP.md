@@ -13,7 +13,7 @@ Items collected before and during alpha testing. Order and scope will be set onc
 
 5. **Drills.** Replay positions you got wrong; endless knock-or-wait and discard drills, weighted toward your biggest leak categories.
 6. **Short lessons for these table rules.** Taken from what the trained model does (for example knock timing by upcard), not from general book advice.
-7. **Card-tracking aid and memory trainer.** Optional tracker overlay; mid-hand quizzes on which cards are gone.
+7. **Card-tracking aid and memory trainer, in three levels.** (a) Open pile: the whole discard pile laid out in order, marked by who threw each card, alongside the cards you have seen your opponent take. (b) Top card only, as at a real table, with a "check the pile" peek that is counted. (c) No aids, with occasional mid-hand quizzes on which cards are gone. The Progress tab notes which level each hand was played at.
 8. **History export and cross-device statistics.** Export and import first; sync through a small backend later.
 9. **Enter a real hand.** Record a hand from an actual game for a post-mortem.
 10. **Opponents with human styles.** Early knocker, gin chaser, speculative picker.
