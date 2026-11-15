@@ -1,7 +1,7 @@
 import { type Card, VALUE, cardName, rankOf, RANKS } from '../engine/cards';
 import { type Action, HandState } from '../engine/hand';
 import { deadwood, discardDeadwoods } from '../engine/melds';
-import { DEAD, MINE, OPP, UNSEEN, cardStatus, liveOuts } from '../bots/policy';
+import { DEAD, MINE, OPP, UNSEEN, cardStatus } from '../bots/policy';
 import { type Models } from '../bots/learned';
 import { NK, NV, kFeatures, makeCtx, vFeatures, type Ctx } from './features';
 import { DEFAULT_WEIGHTS, holdWeights, sameAction } from './mc';
@@ -238,9 +238,28 @@ interface CardFacts {
   inMeld: boolean;
 }
 
-function cardFacts(s: HandState, p: number, c: Card, st: Uint8Array): CardFacts {
+/**
+ * Unseen cards that would put `c` into a meld, given the ten cards you would hold.
+ * Uses the full meld search, so a partner that is already committed to a better meld
+ * (for example a 3 sitting inside a run) does not create a false out.
+ */
+export function realOuts(held: readonly Card[], c: Card, st: Uint8Array): Card[] {
+  const without = held.filter((x) => x !== c);
+  // already melded without any help: no outs to speak of
+  if (deadwood(held) < deadwood(without) + VALUE[c]) return [];
   const outs: Card[] = [];
-  liveOuts(c, st, outs);
+  for (let x = 0; x < 52; x++) {
+    if (st[x] !== UNSEEN) continue;
+    if (deadwood([...held, x]) < deadwood([...without, x]) + VALUE[c]) outs.push(x);
+  }
+  return outs;
+}
+
+/** Facts about card `c` in the 11-card hand, assuming `other` is the card discarded instead. */
+function cardFacts(s: HandState, p: number, c: Card, st: Uint8Array, other: Card): CardFacts {
+  const hand = s.hands[p];
+  const held = hand.filter((x) => x !== other);
+  const outs = other >= 0 && other !== c ? realOuts(held, c, st) : [];
   const r = c % 13;
   const b = c - r;
   const partners: Card[] = [];
@@ -260,10 +279,9 @@ function cardFacts(s: HandState, p: number, c: Card, st: Uint8Array): CardFacts 
     if (Math.abs(dr) === 1 && st[o] === MINE) partners.push(o);
     if (st[o] === OPP) oppRelated.push(o);
   }
-  const hand = s.hands[p];
   const inMeld = deadwood(hand.filter((x) => x !== c)) > deadwood(hand) - VALUE[c];
   const oppThrewSameRank = s.discards[1 - p].some((x) => rankOf(x) === r);
-  return { outs: [...new Set(outs)], partnersInHand: partners, oppRelated, deadPartners, oppThrewSameRank, inMeld };
+  return { outs, partnersInHand: partners, oppRelated, deadPartners, oppThrewSameRank, inMeld };
 }
 
 function dangerNote(c: Card, f: CardFacts): string | null {
@@ -357,8 +375,8 @@ export function judge(s: HandState, an: Analysis, userAction: Action, useMatch =
       R.push(`Knocking with ${chosen.deadwoodAfter} is worth about ${pts(chosen.ev)} (undercut risk about ${pct(chosen.pLose)}). Playing on by discarding the ${cardName(bc)} is worth about ${pts(best.ev)}.`);
       R.push(`Gin pays 25 plus deadwood here against a small gain for the knock, and your hand has good chances to improve before your opponent is ready.`);
     } else if (uc >= 0 && bc >= 0) {
-      const fu = cardFacts(s, p, uc, st);
-      const fb = cardFacts(s, p, bc, st);
+      const fu = cardFacts(s, p, uc, st, bc);
+      const fb = cardFacts(s, p, bc, st, uc);
       const dwGap = (chosen.deadwoodAfter ?? 0) - (best.deadwoodAfter ?? 0);
       const du = dangerNote(uc, fu);
       if (userKnock && bestKnock) {
@@ -375,7 +393,7 @@ export function judge(s: HandState, an: Analysis, userAction: Action, useMatch =
         if (sb) R.push(sb);
       } else if (fu.outs.length > fb.outs.length) {
         v.category = 'broke-combo';
-        R.push(`The ${cardName(uc)} was working with ${list(fu.partnersInHand)}: ${fu.outs.length} live card${fu.outs.length === 1 ? '' : 's'} (${list(fu.outs)}) would have completed a meld.`);
+        R.push(`The ${cardName(uc)} could still have joined a meld: ${fu.outs.length} live card${fu.outs.length === 1 ? '' : 's'} (${list(fu.outs)}) would have completed one.`);
         R.push(fb.outs.length ? `The ${cardName(bc)} has fewer ways to improve (${list(fb.outs)}).` : `The ${cardName(bc)} has no live card that would meld it.`);
       } else if (VALUE[bc] - VALUE[uc] >= 3) {
         v.category = 'high-cards';

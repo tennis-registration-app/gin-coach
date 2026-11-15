@@ -5,7 +5,8 @@ import { loadModels } from '../bots/learned';
 import { heuristicPolicy } from '../bots/policy';
 import type { ModelFile } from './model';
 import modelJson from './model.json';
-import { analyze, judge } from './analyze';
+import { analyze, judge, realOuts } from './analyze';
+import { cardStatus } from '../bots/policy';
 import { gameWinChance } from './equity';
 
 const m = loadModels(modelJson as unknown as ModelFile);
@@ -74,6 +75,22 @@ describe('coach', () => {
       checked++;
     }
     expect(checked).toBeGreaterThan(20);
+  });
+
+  it('does not count outs through a partner that is locked in a better meld', () => {
+    // A-2-3-4-5 of spades is a run; the 3c pairs with the 3s only on paper
+    const s = stateWith('9h 9c 8c 7s 7h 4s 5s 3s As 3c', '2s', 'Td');
+    const st = cardStatus(s, s.turn).slice();
+    const hand = s.hands[s.turn];
+    const c3 = P('3c')[0];
+    const c8 = P('8c')[0];
+    // holding the 3c (having thrown the 8c): a third three would not meld it
+    expect(realOuts(hand.filter((x) => x !== c8), c3, st)).toEqual([]);
+    // holding the 8c (having thrown the 3c): the 7c completes 7-8-9 of clubs
+    expect(realOuts(hand.filter((x) => x !== c3), c8, st)).toContain(P('7c')[0]);
+    const an = analyze(s, m);
+    const v = judge(s, an, { type: 'discard', card: c3, knock: false });
+    expect(v.reasons.join(' ')).not.toMatch(/3♥|3♦/);
   });
 
   it('game-win table is sane', () => {

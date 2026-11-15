@@ -229,7 +229,8 @@ export class Session {
       reasons: v.reasons,
     });
     this.events = [];
-    this.log.push(`You: ${actionLabel(a, s).toLowerCase()}.`);
+    const label = actionLabel(a, s);
+    this.log.push(`You: ${label[0].toLowerCase()}${label.slice(1)}.`);
     s.apply(a);
     this.lastVerdict = v;
     this.afterMove();
