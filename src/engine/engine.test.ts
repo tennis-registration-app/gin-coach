@@ -218,6 +218,11 @@ describe('Oklahoma hand flow', () => {
     s.apply({ type: 'stock' });
     expect(s.hands[1].length).toBe(11);
     expect(s.phase).toBe('discard');
+    // the drawn card is tracked for display until the discard
+    expect(s.justDrew).toBe(s.hands[1][10]);
+    expect(s.justTaken).toBe(-1);
+    s.apply({ type: 'discard', card: s.hands[1][0], knock: false });
+    expect(s.justDrew).toBe(-1);
   });
   it('cannot discard the card just taken, and cannot knock above the limit', () => {
     const up0 = P('3d')[0];

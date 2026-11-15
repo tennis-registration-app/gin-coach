@@ -64,6 +64,36 @@ describe('partnership game flow', () => {
     }
   }, 120000);
 
+  it('keeps a manual hand arrangement stable as cards come and go', () => {
+    const sess = new Session(HOUSE_RULES, models, 'easy', 7);
+    const first = [...sess.myOrder()];
+    expect([...first].sort()).toEqual([...sess.hand.hands[ME]].sort());
+    sess.moveCard(first[0], 1);
+    expect(sess.myOrder()[1]).toBe(first[0]);
+    expect(sess.myOrder()[0]).toBe(first[1]);
+    let guard = 0;
+    while (sess.hand.phase !== 'over' && guard++ < 50) {
+      if (!sess.myTurn) {
+        sess.stepOpponent();
+        continue;
+      }
+      const before = [...sess.myOrder()];
+      if (sess.hand.phase === 'draw') {
+        sess.act(sess.hand.opening <= 1 ? { type: 'pass' } : { type: 'stock' });
+        if (sess.hand.turn === ME && sess.hand.phase === 'discard') {
+          const after = sess.myOrder();
+          expect(after.slice(0, before.length)).toEqual(before);
+          expect(after[after.length - 1]).toBe(sess.hand.justDrew);
+        }
+      } else {
+        const drop = before[0];
+        if (drop === sess.hand.justTaken) break;
+        sess.act({ type: 'discard', card: drop, knock: false });
+        expect(sess.myOrder()).toEqual(before.slice(1));
+      }
+    }
+  });
+
   it('reveals the partner result only once enough turns have passed', () => {
     const sess = new Session(HOUSE_RULES, models, 'easy', 99);
     expect(sess.matchContext().partnerDelta === null || sess.partnerTurns === 0).toBe(true);

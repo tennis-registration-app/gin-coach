@@ -71,6 +71,8 @@ export class HandState {
   upcard: Card = -1;
   /** Card the player to move just took from the discard pile (cannot be discarded this turn), else -1. */
   justTaken: Card = -1;
+  /** Card the player to move drew this turn, from either the stock or the pile (for display), else -1. */
+  justDrew: Card = -1;
   /** known[p][c] = 1 if the opponent of p knows p holds card c (p picked it up from the pile). */
   known: [Uint8Array, Uint8Array] = [new Uint8Array(52), new Uint8Array(52)];
   /** Cards each player has discarded, in order. */
@@ -133,6 +135,7 @@ export class HandState {
     s.multiplier = this.multiplier;
     s.upcard = this.upcard;
     s.justTaken = this.justTaken;
+    s.justDrew = this.justDrew;
     s.known = [this.known[0].slice(), this.known[1].slice()];
     s.discards = [this.discards[0].slice(), this.discards[1].slice()];
     s.declined = [this.declined[0].slice(), this.declined[1].slice()];
@@ -195,6 +198,7 @@ export class HandState {
         this.known[p][c] = 1;
         this.takes[p]++;
         this.justTaken = c;
+        this.justDrew = c;
         this.opening = 3;
         this.phase = 'discard';
         return;
@@ -204,6 +208,7 @@ export class HandState {
         if (this.opening === 3 && this.discard.length) this.declined[p].push(this.topDiscard);
         hand.push(this.stock.pop()!);
         this.justTaken = -1;
+        this.justDrew = hand[hand.length - 1];
         this.opening = 3;
         this.phase = 'discard';
         return;
@@ -224,6 +229,7 @@ export class HandState {
         this.discard.push(a.card);
         this.discards[p].push(a.card);
         this.justTaken = -1;
+        this.justDrew = -1;
         this.turnsTaken++;
         if (a.knock) {
           this.finish(p, false);

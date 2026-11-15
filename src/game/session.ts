@@ -1,5 +1,6 @@
 import { type Card, type Rng, cardName, makeRng } from '../engine/cards';
 import { type Action, type HandResult, type Rules, HandState } from '../engine/hand';
+import { arrange } from '../engine/melds';
 import { heuristicPolicy, playHand, simplePolicy, type Policy } from '../bots/policy';
 import { type Models, makeLearned } from '../bots/learned';
 import { type Analysis, type Category, type MatchContext, type Verdict, actionLabel, analyze, judge } from '../coach/analyze';
@@ -99,6 +100,8 @@ export class Session {
   round: RoundResult | null = null;
   useMatchScore = true;
   handId = '';
+  /** your own left-to-right arrangement of your hand (used when arranging by hand) */
+  order: Card[] = [];
 
   constructor(rules: Rules, models: Models, level: BotLevel, seed = (Date.now() ^ (Math.random() * 2 ** 31)) >>> 0) {
     this.rules = rules;
@@ -140,6 +143,7 @@ export class Session {
     this.round = null;
     this.lastVerdict = null;
     this.handId = `${Date.now()}-${g.handNo}`;
+    this.order = [];
     this.refreshAnalysis();
   }
 
@@ -156,6 +160,33 @@ export class Session {
 
   matchContext(): MatchContext {
     return { us: this.game.us, them: this.game.them, partnerDelta: this.partnerKnown ? this.partnerDelta : null, target: this.rules.target };
+  }
+
+  /** Your hand in your own order: cards you still hold keep their place, new cards go on the right. */
+  myOrder(): Card[] {
+    const hand = this.hand.hands[ME];
+    if (this.order.length === 0) {
+      const a = arrange(hand);
+      this.order = [...a.melds.flat(), ...a.deadwoodCards];
+    }
+    const kept = this.order.filter((c) => hand.includes(c));
+    this.order = [...kept, ...hand.filter((c) => !kept.includes(c))];
+    return this.order;
+  }
+
+  /** Move a card one place left (-1) or right (+1) in your arrangement. */
+  moveCard(card: Card, dir: -1 | 1): void {
+    const o = this.myOrder();
+    const i = o.indexOf(card);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= o.length) return;
+    [o[i], o[j]] = [o[j], o[i]];
+  }
+
+  /** Re-sort your arrangement into melds and deadwood. */
+  sortHand(): void {
+    this.order = [];
+    this.myOrder();
   }
 
   get myTurn(): boolean {

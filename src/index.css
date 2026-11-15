@@ -251,6 +251,12 @@ p {
   transform: translateY(calc(var(--ch) * -0.18));
   box-shadow: 0 0 0 3px var(--brass), 0 8px 14px rgba(0, 0, 0, 0.4);
 }
+.card.fresh {
+  box-shadow: 0 0 0 3px #8fd0b0, 0 3px 8px rgba(0, 0, 0, 0.35);
+}
+.card.fresh.selected {
+  box-shadow: 0 0 0 3px var(--brass), 0 8px 14px rgba(0, 0, 0, 0.4);
+}
 .card.dim {
   opacity: 0.72;
 }
@@ -605,6 +611,9 @@ select {
   }
   .handrow {
     gap: 10px 8px;
+  }
+  .group.manual .card {
+    margin-left: calc(var(--cw) * -0.47);
   }
   .tabs button {
     padding: 8px 6px;

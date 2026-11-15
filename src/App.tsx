@@ -13,9 +13,9 @@ const models = loadModels(modelJson as unknown as ModelFile);
 
 type Tab = 'play' | 'review' | 'progress' | 'rules';
 
-function CardView({ card, selected, onClick, small, dim, tag }: { card: Card; selected?: boolean; onClick?: () => void; small?: boolean; dim?: boolean; tag?: string }) {
+function CardView({ card, selected, onClick, small, dim, tag, fresh }: { card: Card; selected?: boolean; onClick?: () => void; small?: boolean; dim?: boolean; tag?: string; fresh?: boolean }) {
   const red = suitOf(card) === 1 || suitOf(card) === 2;
-  const cls = `card${red ? ' red' : ''}${selected ? ' selected' : ''}${small ? ' small' : ''}${dim ? ' dim' : ''}${onClick ? ' tappable' : ''}`;
+  const cls = `card${red ? ' red' : ''}${selected ? ' selected' : ''}${small ? ' small' : ''}${dim ? ' dim' : ''}${fresh ? ' fresh' : ''}${onClick ? ' tappable' : ''}`;
   const inner = (
     <>
       <span className="rank">{RANKS[rankOf(card)]}</span>
@@ -173,11 +173,24 @@ function Play({ session, settings, bump }: { session: Session; settings: Setting
   const seen: Card[] = [];
   if (settings.showSeenCards) for (let c = 0; c < 52; c++) if (s.known[OPP][c]) seen.push(c);
 
+  const canSelect = !over && (settings.manualArrange || (myTurn && s.phase === 'discard'));
+  const handCard = (c: Card) => (
+    <CardView
+      key={c}
+      card={c}
+      selected={sel === c}
+      tag={c === s.justDrew && s.turn === ME && s.phase === 'discard' ? 'just drawn' : undefined}
+      fresh={c === s.justDrew && s.turn === ME && s.phase === 'discard'}
+      onClick={canSelect ? () => setSel(sel === c ? null : c) : undefined}
+    />
+  );
+
   let prompt = '';
   if (over) prompt = '';
   else if (!myTurn) prompt = `${oppName} is thinking…`;
   else if (s.phase === 'draw') prompt = s.opening <= 1 ? `Take the upcard or pass?` : s.opening === 2 ? 'Both passed. Draw from the stock.' : 'Draw from the stock or take the top discard.';
   else prompt = sel === null ? 'Tap a card to discard.' : '';
+  const arranging = settings.manualArrange && sel !== null && !over;
 
   const partnerLine = session.partnerKnown
     ? `${g.partner} v ${session.partnerOpponentName}: ${describeResult(session.partnerResult, session.partnerResult.winner === 0 ? g.partner : session.partnerOpponentName, session.partnerResult.winner === 0 ? session.partnerOpponentName : g.partner)}`
@@ -240,18 +253,18 @@ function Play({ session, settings, bump }: { session: Session; settings: Setting
 
         <div className="me">
           <div className="handrow">
-            {arr.melds.map((m, i) => (
-              <div className="group meld" key={i}>
-                {m.map((c) => (
-                  <CardView key={c} card={c} selected={sel === c} dim={c === s.justTaken && s.phase === 'discard'} onClick={myTurn && s.phase === 'discard' ? () => setSel(sel === c ? null : c) : undefined} />
+            {settings.manualArrange ? (
+              <div className="group manual">{session.myOrder().map(handCard)}</div>
+            ) : (
+              <>
+                {arr.melds.map((m, i) => (
+                  <div className="group meld" key={i}>
+                    {m.map(handCard)}
+                  </div>
                 ))}
-              </div>
-            ))}
-            <div className="group">
-              {arr.deadwoodCards.map((c) => (
-                <CardView key={c} card={c} selected={sel === c} dim={c === s.justTaken && s.phase === 'discard'} onClick={myTurn && s.phase === 'discard' ? () => setSel(sel === c ? null : c) : undefined} />
-              ))}
-            </div>
+                <div className="group">{arr.deadwoodCards.map(handCard)}</div>
+              </>
+            )}
           </div>
           <p className="deadwood">
             Deadwood {dw}
@@ -290,6 +303,21 @@ function Play({ session, settings, bump }: { session: Session; settings: Setting
                 </button>
               )}
             </>
+          )}
+          {arranging && (
+            <>
+              <button type="button" className="btn" aria-label="Move the selected card left" onClick={() => { session.moveCard(sel!, -1); bump(); }}>
+                ◀ Move
+              </button>
+              <button type="button" className="btn" aria-label="Move the selected card right" onClick={() => { session.moveCard(sel!, 1); bump(); }}>
+                Move ▶
+              </button>
+            </>
+          )}
+          {settings.manualArrange && !over && sel === null && (
+            <button type="button" className="link light" onClick={() => { session.sortHand(); bump(); }}>
+              Sort my hand
+            </button>
           )}
           {myTurn && settings.feedback !== 'off' && !hint && (
             <button type="button" className="link light" onClick={() => setHint(true)}>
@@ -543,6 +571,10 @@ function Rules({ settings, update, onClear }: { settings: Settings; update: (s: 
       <label className="check">
         <input type="checkbox" checked={settings.showSeenCards} onChange={(e) => update({ ...settings, showSeenCards: e.target.checked })} />
         Show the cards you have seen your opponent pick up
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={settings.manualArrange} onChange={(e) => update({ ...settings, manualArrange: e.target.checked })} />
+        Arrange my hand myself (cards stay where you put them; new cards arrive on the right)
       </label>
       <p className="note">A change of opponent takes effect on the next hand.</p>
 
