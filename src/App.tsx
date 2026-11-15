@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { type Card, RANKS, SUITS, cardName, suitOf, rankOf } from './engine/cards';
-import { type Action, type HandResult } from './engine/hand';
+import { type Action, type HandResult, HOUSE_RULES } from './engine/hand';
 import { arrange, deadwood } from './engine/melds';
 import { loadModels } from './bots/learned';
 import { CATEGORY_LABEL, type Category } from './coach/analyze';
@@ -69,15 +69,16 @@ function Spread({ cards, small, laidOff }: { cards: Card[]; small?: boolean; lai
 const signed = (x: number, digits = 1) => (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(digits);
 
 function describeResult(r: HandResult, winnerName: string, loserName: string): string {
+  const R = HOUSE_RULES;
   switch (r.kind) {
     case 'draw':
       return 'The stock ran down to two cards. No score.';
     case 'gin':
-      return `${winnerName} went gin: 25 + ${r.defenderDeadwood} = ${r.points}.`;
+      return `${winnerName} went gin: ${R.ginBonus} + ${r.defenderDeadwood} = ${r.points}.`;
     case 'biggin':
-      return `${winnerName} made eleven-card gin: 50 + ${r.defenderDeadwood} = ${r.points}.`;
+      return `${winnerName} made eleven-card gin: ${R.bigGinBonus} + ${r.defenderDeadwood} = ${r.points}.`;
     case 'undercut':
-      return `${loserName} knocked with ${r.knockerDeadwood} and was undercut (${r.defenderDeadwood}): 10 + ${r.knockerDeadwood - r.defenderDeadwood} = ${r.points} to ${winnerName}.`;
+      return `${loserName} knocked with ${r.knockerDeadwood} and was undercut (${r.defenderDeadwood}): ${R.undercutBonus} + ${r.knockerDeadwood - r.defenderDeadwood} = ${r.points} to ${winnerName}.`;
     case 'knock':
       return `${winnerName} knocked with ${r.knockerDeadwood} against ${r.defenderDeadwood}: ${r.points}.`;
   }

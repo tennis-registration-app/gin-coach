@@ -34,7 +34,8 @@ function write(key: string, value: unknown): void {
 
 export const loadSettings = (): Settings => {
   const s = read<Partial<Settings>>(K.settings, {});
-  return { ...DEFAULT_SETTINGS, ...s, rules: { ...HOUSE_RULES, ...(s.rules ?? {}) } };
+  // the table rules are fixed in the app (the coach is trained on them), so stored copies are ignored
+  return { ...DEFAULT_SETTINGS, ...s, rules: HOUSE_RULES };
 };
 export const saveSettings = (s: Settings): void => write(K.settings, s);
 

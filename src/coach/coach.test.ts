@@ -94,9 +94,10 @@ describe('coach', () => {
   });
 
   it('game-win table is sane', () => {
-    expect(gameWinChance(0, 0, 200)).toBeCloseTo(0.5, 1);
-    expect(gameWinChance(150, 50, 200)).toBeGreaterThan(0.75);
-    expect(gameWinChance(50, 150, 200)).toBeLessThan(0.25);
-    expect(gameWinChance(210, 150, 200)).toBe(1);
+    const T = HOUSE_RULES.target;
+    expect(gameWinChance(0, 0, T)).toBeCloseTo(0.5, 1);
+    expect(gameWinChance(T * 0.75, T * 0.25, T)).toBeGreaterThan(0.75);
+    expect(gameWinChance(T * 0.25, T * 0.75, T)).toBeLessThan(0.25);
+    expect(gameWinChance(T + 10, T - 50, T)).toBe(1);
   });
 });

@@ -10,7 +10,7 @@ import { ME, Session } from './session';
 const models = loadModels(modelJson as unknown as ModelFile);
 
 describe('partnership game flow', () => {
-  it('plays complete games to 200 with consistent scoring and coach verdicts', () => {
+  it('plays complete games to the target with consistent scoring and coach verdicts', () => {
     const rng = makeRng(5);
     for (const level of ['easy', 'strong'] as const) {
       const sess = new Session(HOUSE_RULES, models, level, 1234);
@@ -29,12 +29,12 @@ describe('partnership game flow', () => {
           const sum = sess.summary();
           expect(sum.decisions).toBe(sess.records.length);
           if (g.over) {
-            expect(Math.max(g.us, g.them)).toBeGreaterThanOrEqual(200);
+            expect(Math.max(g.us, g.them)).toBeGreaterThanOrEqual(HOUSE_RULES.target);
             games++;
             sess.newGame();
             expect(sess.game.us).toBe(0);
           } else {
-            expect(Math.max(g.us, g.them)).toBeLessThan(200);
+            expect(Math.max(g.us, g.them)).toBeLessThan(HOUSE_RULES.target);
             sess.startHand();
           }
           continue;
@@ -60,7 +60,7 @@ describe('partnership game flow', () => {
         }
       }
       expect(games).toBe(2);
-      expect(hands).toBeGreaterThan(4);
+      expect(hands).toBeGreaterThan(3);
     }
   }, 120000);
 

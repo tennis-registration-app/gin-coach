@@ -174,7 +174,7 @@ describe('scoring under house rules', () => {
     expect(r.laidOff.sort()).toEqual(P('4s 9s').sort());
     expect(r.points).toBe(20 - 4);
   });
-  it('undercut scores 10 plus the difference, including a tie', () => {
+  it('undercut scores 20 plus the difference, including a tie', () => {
     const knocker = P('As 2s 3s 9h 9d 9c Jd Qd Kd 6h'); // deadwood 6
     const def = P('4s 5s 2h 2c 2d 7c 7d 7h Tc 3c'); // 4s lays off, 5s lays off after it; left 10+3 = 13 -> no undercut
     expect(showdown(knocker, def, 0, false, R).kind).toBe('knock');
@@ -184,11 +184,11 @@ describe('scoring under house rules', () => {
     const r3 = showdown(knocker, def3, 0, false, R);
     expect(r3.kind).toBe('undercut');
     expect(r3.winner).toBe(1);
-    expect(r3.points).toBe(10 + 3);
+    expect(r3.points).toBe(20 + 3);
     const def4 = P('4s 5s 2h 2c 2d 7c 7d 7h 9s 6c'); // left 6 = tie -> undercut for 10
     const r4 = showdown(knocker, def4, 0, false, R);
     expect(r4.kind).toBe('undercut');
-    expect(r4.points).toBe(10);
+    expect(r4.points).toBe(20);
   });
 });
 

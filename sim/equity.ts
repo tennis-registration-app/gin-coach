@@ -29,7 +29,7 @@ for (let a = 0; a < vals.length; a++) for (let b = 0; b < vals.length; b++) {
 }
 const outcomes = [...round.entries()].map(([k, p]) => ({ us: +k.split(',')[0], th: +k.split(',')[1], p }));
 const p00 = round.get('0,0') || 0;
-const TARGET = 200;
+const TARGET = HOUSE_RULES.target;
 const W = new Float64Array(TARGET * TARGET);
 const win = (u: number, t: number) => (u >= TARGET || t >= TARGET ? (u > t ? 1 : u < t ? 0 : 0.5) : W[u * TARGET + t]);
 for (let sum = 2 * TARGET - 2; sum >= 0; sum--) {

@@ -11,9 +11,9 @@ The app is a static web app (React, TypeScript, Vite). Everything runs in the br
 The engine implements one table's house rules (`HOUSE_RULES` in `src/engine/hand.ts`).
 
 - Four players in two partnerships. Two two-handed matchups are played at once and the team scores combine each hand. You alternate between the two opponents every hand. Partners are redrawn after each game.
-- First team to 200 wins. There are no box, game or shutout bonuses.
+- First team to 150 wins. There are no box, game or shutout bonuses.
 - Oklahoma: the first upcard sets the highest count you can knock with (face cards count 10). An ace upcard means gin only. Spades do not double.
-- Gin scores 25 plus the opponent's deadwood. Eleven-card gin scores 50 plus deadwood. An undercut scores 10 plus the difference. A knock scores the difference.
+- Gin scores 25 plus the opponent's deadwood. Eleven-card gin scores 50 plus deadwood. An undercut scores 20 plus the difference. A knock scores the difference.
 - You cannot see your partner's hand, but you see the result of their matchup once it finishes.
 
 The winner of your previous hand deals the next. Three details were assumed rather than confirmed, and are flagged in the app's Rules tab: no laying off against gin, the hand is a draw when two stock cards remain, and the non-dealer is offered the upcard first.
@@ -31,7 +31,7 @@ Draw decisions are rated by looking one draw ahead: the value of taking the pile
 
 A move is flagged only when the estimated loss is at least 1.5 points (3 for draw decisions) and larger than the coach's margin of error, which comes from the disagreement among three independently trained copies of each model. Closer calls are reported as close calls. Flagged mistakes are sorted into categories (discard-pile decisions, holding high cards, feeding the opponent, breaking up combinations, knocking too early, knocking too late), and the Progress tab shows points lost per hand in each.
 
-When the option is switched on, the advice also accounts for the game score and your partner's result, using a table of game-win chances built from simulated games to 200.
+When the option is switched on, the advice also accounts for the game score and your partner's result, using a table of game-win chances built from simulated games to 150.
 
 ## Measured results
 
@@ -39,16 +39,16 @@ All figures are from `sim/` scripts under the house rules. Each deal is played t
 
 | Matchup | Hands | Hands won | Points per hand |
 | --- | --- | --- | --- |
-| Strong v Baseline | 10,000 | 56.6% (±0.5) | +6.6 |
-| Expert v Baseline | 3,000 | 58.2% (±0.9) | +7.6 |
-| Strong v Medium | 10,000 | 52.4% (±0.5) | +3.8 |
+| Strong v Baseline | 10,000 | 53.7% (±0.5) | +6.3 |
+| Expert v Baseline | 3,000 | 54.1% (±0.9) | +6.7 |
+| Strong v Medium | 10,000 | 49.7% (±0.5) | +3.5 |
 | Medium v Baseline | 10,000 | 53.7% (±0.5) | +1.6 |
-| Expert v Strong | 3,000 | 50.1% (±0.9) | +0.2 |
+| Expert v Strong | 3,000 | 50.6% (±0.9) | +0.4 |
 
 - Baseline is a port of the published policy of the EAAI 2021 Gin Rummy Challenge's `SimpleGinRummyPlayer` (take the pile card only if it melds, discard to the lowest deadwood, knock as soon as legal), adapted to the Oklahoma knock limit.
 - Medium is a hand-written rule-based bot. Strong follows the coach's discard and knock advice. Expert also uses the coach's one-draw lookahead.
-- The original target was 60% of hands against Baseline. The best bot reaches 58%. The models were trained to maximise points, not hands won, and the gain in points is larger than the gain in hands.
-- Coach validity: a bot that follows the coach's discard and knock advice beats the rule-based bot by 3.8 points a hand and Baseline by 6.6. The draw-decision lookahead added no measurable strength over the plain rule (Expert v Strong), which is why draw decisions are flagged only at a higher threshold.
+- The original target was 60% of hands against Baseline. The best bot reaches 54%. The models were trained to maximise points, not hands won: the trained bots win about as many hands as the rule-based bot but win bigger ones, mostly by going gin more often.
+- Coach validity: a bot that follows the coach's discard and knock advice beats the rule-based bot by 3.5 points a hand and Baseline by 6.3. The draw-decision lookahead added no measurable strength over the plain rule (Expert v Strong), which is why draw decisions are flagged only at a higher threshold.
 - Speed, on the build machine: a discard analysis takes under 1 ms and a draw analysis about 14 ms (median), so the coach runs on the main thread with no worker.
 
 ## Limitations
@@ -93,4 +93,4 @@ npx tsx sim/equity.ts src/coach/model.json 60000
 npx tsx sim/lv.ts src/coach/model.json 5000 strong simple
 ```
 
-The shipped model was trained in three rounds, the last on about 2.7 million positions from 180,000 hands.
+After a rule change, `sim/retrain.sh` runs the whole sequence (about 35 minutes on two cores). The shipped model was retrained this way for the 20-point undercut, the last round on about 2.5 million positions from 180,000 hands.

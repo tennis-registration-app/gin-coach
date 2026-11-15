@@ -1,3 +1,45 @@
+# Implementation plan
+
+Each phase ends with a deploy and a round of play-testing before the next begins. Item numbers refer to the backlog below.
+
+## Phase 1: explanations you can learn from (items 1 and 2)
+
+The foundation for everything else.
+
+- A facts module that computes the four checks for any candidate play: what can improve each card (live, dead, suspect and competing outs), whether the discard is usable by the opponent (including the exact "provably unusable" check), what the card costs if the opponent goes out, and which draws would then let you knock or gin.
+- A Why panel on every verdict, including close calls and plays the coach agrees with, ordered by biggest difference.
+- The short text on flagged mistakes rebuilt from the same four checks.
+- The hint lists near-equal plays as equal.
+- Done when: the two hands from alpha testing (the A-hearts against 9-clubs discard, and the 3-clubs against 8-clubs discard) produce the explanations worked out by hand, and a test confirms no explanation contradicts the meld search.
+
+## Phase 2: coaching before you commit (items 1 and 4)
+
+- Explore mode: tap a card to see its rating and four checks before discarding; the same on draw decisions. Replaces "Ask the coach first".
+- Take back a move, with the first attempt still counted and stock draws reshuffled.
+- Progress separates aided hands from unaided hands.
+
+## Phase 3: card tracking (item 7)
+
+- Open pile view, then top card with a counted peek, then no aids with quizzes.
+- Progress shows results by aid level.
+
+## Phase 4: drills and lessons (items 5 and 6)
+
+- Replay the positions you got wrong.
+- Generated drills by category, weighted toward your largest leaks.
+- Short lessons taken from the trained model, starting with knock timing by upcard and stage of the hand.
+
+## Phase 5: closer to your real table (items 3, 9 and 10)
+
+- Enter a real hand for a post-mortem.
+- Opponents with human styles, based on the habits seen at your table.
+- Drag to arrange, if still wanted.
+
+## Not scheduled
+
+- History export and cross-device statistics (item 8): left for now.
+- Rule variants (item 11): if added, standard gin first.
+
 # Improvement backlog
 
 Items collected before and during alpha testing. Order and scope will be set once testing shows which matter most.
@@ -33,6 +75,7 @@ Items collected before and during alpha testing. Order and scope will be set onc
 - Explanations count only real outs: a partner already locked in a better meld no longer creates a false out.
 - Hand log capitalisation.
 - Winner of the previous hand deals (was loser).
+- Undercut bonus 20 (was 10) and game to 150 (was 200); coach retrained on the new rules.
 
 ## Dropped
 

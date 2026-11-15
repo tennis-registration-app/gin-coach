@@ -26,8 +26,8 @@ export interface Rules {
 export const HOUSE_RULES: Rules = {
   ginBonus: 25,
   bigGinBonus: 50,
-  undercutBonus: 10,
-  target: 200,
+  undercutBonus: 20,
+  target: 150,
   oklahoma: true,
   aceGinOnly: true,
   spadeDoubles: false,

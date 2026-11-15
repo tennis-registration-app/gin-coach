@@ -365,15 +365,15 @@ export function judge(s: HandState, an: Analysis, userAction: Action, useMatch =
     const bc = best.action.type === 'discard' ? best.action.card : -1;
     if (bestKnock && !userKnock) {
       v.category = 'knock-late';
-      if (best.nominal) R.push('You had gin available. Gin scores 25 plus your opponent\'s deadwood and cannot be undercut.');
+      if (best.nominal) R.push(`You had gin available. Gin scores ${s.rules.ginBonus} plus your opponent's deadwood and cannot be undercut.`);
       else {
         R.push(`Knocking with ${best.deadwoodAfter} wins about ${pct(best.pWin)} of the time here for an average of ${pts(best.ev)}. Playing on is worth about ${pts(chosen.ev)}.`);
-        R.push(`At your table an undercut costs only 10 plus the difference, so a knock this early is cheap insurance against your opponent improving or going gin (about ${pct(chosen.pLose)} of hands if you wait).`);
+        R.push(`An undercut would cost you ${s.rules.undercutBonus} plus the difference, but waiting gives your opponent time to improve or go gin (they score in about ${pct(chosen.pLose)} of hands if you play on).`);
       }
     } else if (userKnock && !bestKnock) {
       v.category = 'knock-early';
       R.push(`Knocking with ${chosen.deadwoodAfter} is worth about ${pts(chosen.ev)} (undercut risk about ${pct(chosen.pLose)}). Playing on by discarding the ${cardName(bc)} is worth about ${pts(best.ev)}.`);
-      R.push(`Gin pays 25 plus deadwood here against a small gain for the knock, and your hand has good chances to improve before your opponent is ready.`);
+      R.push(`Gin pays ${s.rules.ginBonus} plus deadwood against a small gain for the knock, an undercut costs ${s.rules.undercutBonus} plus the difference, and your hand has good chances to improve before your opponent is ready.`);
     } else if (uc >= 0 && bc >= 0) {
       const fu = cardFacts(s, p, uc, st, bc);
       const fb = cardFacts(s, p, bc, st, uc);
