@@ -2,6 +2,8 @@
 
 Practice four-player partnership Oklahoma gin against bots, with a coach that grades every draw, discard and knock, tells you roughly how many points a mistake cost, and tracks which kinds of mistakes cost you the most over time.
 
+Play it at https://tennis-registration-app.github.io/gin-coach/
+
 The app is a static web app (React, TypeScript, Vite). Everything runs in the browser, including the bots and the coach, and it works offline after the first load. Hands and statistics are saved on the device.
 
 ## Table rules
