@@ -3,7 +3,8 @@ import { type Action, type HandResult, type Rules, HandState } from '../engine/h
 import { arrange } from '../engine/melds';
 import { heuristicPolicy, playHand, simplePolicy, type Policy } from '../bots/policy';
 import { type Models, makeLearned } from '../bots/learned';
-import { type Analysis, type Category, type MatchContext, type Verdict, actionLabel, analyze, judge } from '../coach/analyze';
+import { type Analysis, type Category, type MatchContext, type Verdict, actionLabel, analyze, judge, nearTies } from '../coach/analyze';
+import { hindsight } from '../coach/facts';
 
 export type BotLevel = 'easy' | 'medium' | 'strong' | 'expert';
 export const LEVEL_LABEL: Record<BotLevel, string> = {
@@ -36,6 +37,11 @@ export interface DecisionRecord {
   category: Category | null;
   headline: string;
   reasons: string[];
+  /** the checks behind the verdict, and the play they compare yours against */
+  why?: { title: string; lines: string[] }[];
+  versus?: string;
+  /** what the hidden cards showed; only displayed once the hand is over */
+  hindsight?: string[];
 }
 
 export interface HandSummary {
@@ -227,6 +233,9 @@ export class Session {
       category: v.category,
       headline: v.headline,
       reasons: v.reasons,
+      why: v.why,
+      versus: v.versus,
+      hindsight: this.hindsightFor(a, v),
     });
     this.events = [];
     const label = actionLabel(a, s);
@@ -235,6 +244,23 @@ export class Session {
     this.lastVerdict = v;
     this.afterMove();
     return v;
+  }
+
+  private hindsightFor(a: Action, v: Verdict): string[] {
+    if (a.type !== 'discard' || a.knock) return [];
+    const opp = this.hand.hands[OPP];
+    const out = [hindsight(opp, a.card)];
+    const b = v.best.action;
+    if (b.type === 'discard' && !b.knock && b.card !== a.card) out.push(hindsight(opp, b.card));
+    return out;
+  }
+
+  /** The coach's hint for the current decision: the best play, or the plays it cannot separate. */
+  hint(): string {
+    if (!this.analysis) return '';
+    const t = nearTies(this.analysis).map((o) => o.label);
+    if (t.length === 1) return `Coach would: ${t[0][0].toLowerCase()}${t[0].slice(1)}.`;
+    return `Coach rates these about equal: ${t.slice(0, 5).join('; ')}${t.length > 5 ? '; and others' : ''}.`;
   }
 
   /** Let the opponent make one action. Returns false if it is not their turn. */

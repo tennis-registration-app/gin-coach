@@ -6,6 +6,8 @@ import { heuristicPolicy } from '../bots/policy';
 import type { ModelFile } from './model';
 import modelJson from './model.json';
 import { analyze, judge, realOuts } from './analyze';
+import { improveCheck, knockCheck, safetyCheck } from './facts';
+import { fullDeck as allCards } from '../engine/cards';
 import { cardStatus } from '../bots/policy';
 import { gameWinChance } from './equity';
 
@@ -91,6 +93,94 @@ describe('coach', () => {
     const an = analyze(s, m);
     const v = judge(s, an, { type: 'discard', card: c3, knock: false });
     expect(v.reasons.join(' ')).not.toMatch(/3♥|3♦/);
+  });
+
+  // Two hands from alpha testing, rebuilt from their hand logs.
+  function build(o: { mine: string; pile: string; oppKnown: string; upcard: string; myDisc: string; oppDisc: string; myDecl: string; oppDecl: string; takes: [number, number] }): HandState {
+    const mine = P(o.mine);
+    const pile = P(o.pile);
+    const ok = P(o.oppKnown);
+    const s = new HandState(HOUSE_RULES);
+    const rest = allCards().filter((c) => !mine.includes(c) && !pile.includes(c) && !ok.includes(c));
+    s.hands = [mine.slice(), [...ok, ...rest.slice(0, 10 - ok.length)]];
+    s.stock = rest.slice(10 - ok.length);
+    s.discard = pile.slice();
+    s.upcard = P(o.upcard)[0];
+    s.setKnockLimit();
+    s.dealer = 1;
+    s.turn = 0;
+    s.phase = 'discard';
+    s.opening = 3;
+    for (const c of ok) s.known[1][c] = 1;
+    s.takes = o.takes;
+    s.discards = [P(o.myDisc), P(o.oppDisc)];
+    s.declined = [P(o.myDecl), P(o.oppDecl)];
+    s.turnsTaken = s.discards[0].length + s.discards[1].length;
+    return s;
+  }
+  const names = (cs: number[]) => cs.map((c) => P('As 2s 3s 4s 5s 6s 7s 8s 9s Ts Js Qs Ks Ah 2h 3h 4h 5h 6h 7h 8h 9h Th Jh Qh Kh Ad 2d 3d 4d 5d 6d 7d 8d 9d Td Jd Qd Kd Ac 2c 3c 4c 5c 6c 7c 8c 9c Tc Jc Qc Kc').indexOf(c)).length;
+
+  it('alpha hand 1: ace of hearts against nine of clubs', () => {
+    const s = build({ mine: '7d 8d 9d 6s 6h 6d 2d Jc Jd 9c Ah', pile: 'Ac Kc 4s 9h 5c 8c 7c 5h', oppKnown: 'Qs Ts', upcard: 'Qs', myDisc: 'Kc Ts 9h 8c 7c', oppDisc: 'Ac 4s Jc 5c 6d 5h', myDecl: 'Ac 4s 5c 5h', oppDecl: 'Kc 9h 8c 7c', takes: [2, 2] });
+    const st = cardStatus(s, 0).slice();
+    const [ah, c9] = [P('Ah')[0], P('9c')[0]];
+    // the 9c cannot be used by the opponent in any meld; the ace can
+    expect(safetyCheck(s, 0, c9, st).usable).toEqual([]);
+    expect(safetyCheck(s, 0, ah, st).usable.length).toBeGreaterThan(0);
+    // the 9c's run needs the 10c, which is doubtful because the opponent picked up a ten; the 8c and 9h are gone
+    const imp = improveCheck(s, 0, s.hands[0], c9, ah, st);
+    expect(imp.outs).toContain(P('Tc')[0]);
+    expect(imp.suspect.map((x) => x.card)).toContain(P('Tc')[0]);
+    expect(imp.gone.map((g) => g.card)).toContain(P('9h')[0]);
+    expect(improveCheck(s, 0, s.hands[0], ah, c9, st).outs).toEqual([]);
+    expect(names(imp.outs)).toBe(imp.outs.length);
+    const v = judge(s, analyze(s, m), { type: 'discard', card: ah, knock: false });
+    expect(v.best.label).toMatch(/9♣/);
+    expect(v.why.map((w) => w.title)).toContain('How safe each discard is');
+    expect(v.why.flatMap((w) => w.lines).join(' ')).toMatch(/provably safe/);
+  });
+
+  it('alpha hand 2: three of clubs against eight of clubs', () => {
+    const s = build({ mine: '9h 9c 8c 7s 7h 4s 5s 3s As 2s 3c', pile: 'Qs 6s Th Tc Js 6h 5c 8s 2c 8d 6d Jc', oppKnown: 'Ks', upcard: 'Th', myDisc: 'Ks 6s Th Js 5c 2c 6d', oppDisc: 'Qs 5s Tc 6h 8s 8d Jc', myDecl: 'Qs Tc 6h 8s 8d Jc', oppDecl: '6s Th Js 5c 2c 6d', takes: [2, 1] });
+    const st = cardStatus(s, 0).slice();
+    const hand = s.hands[0];
+    const [c3, c8] = [P('3c')[0], P('8c')[0]];
+    // the 3c has no outs because the 3s is locked in the spade run
+    const i3 = improveCheck(s, 0, hand, c3, c8, st);
+    expect(i3.outs).toEqual([]);
+    expect(i3.shared).toEqual({ partner: P('3s')[0], locked: true, alsoWants: [] });
+    // throwing the 8c leaves a knock after a third nine; throwing the 3c does not
+    const k8 = knockCheck(hand.filter((c) => c !== c8), st, s.knockLimit);
+    const k3 = knockCheck(hand.filter((c) => c !== c3), st, s.knockLimit);
+    expect(k8.knockDraws).toContain(P('9s')[0]);
+    expect(k8.knockDraws).toContain(P('9d')[0]);
+    expect(k3.knockDraws).toEqual([]);
+    const v = judge(s, analyze(s, m), { type: 'discard', card: c3, knock: false });
+    expect(v.flagged).toBe(true);
+    expect(v.best.label).toMatch(/8♣/);
+    expect(v.reasons.join(' ')).toMatch(/knock next turn/);
+    expect(v.reasons.join(' ')).not.toMatch(/3♥|3♦/);
+  });
+
+  it('explains every decision, including ones the coach agrees with', () => {
+    const rng = makeRng(21);
+    let withWhy = 0;
+    let total = 0;
+    for (let t = 0; t < 30; t++) {
+      const s = HandState.deal(HOUSE_RULES, t % 2, rng);
+      while (s.phase !== 'over') {
+        const an = analyze(s, m);
+        const a = heuristicPolicy.act(s, rng);
+        if (!an.forced) {
+          const v = judge(s, an, a);
+          total++;
+          if (v.why.length) withWhy++;
+          for (const sec of v.why) for (const line of sec.lines) expect(line).not.toMatch(/undefined|NaN/);
+        }
+        s.apply(a);
+      }
+    }
+    expect(withWhy / total).toBeGreaterThan(0.95);
   });
 
   it('game-win table is sane', () => {

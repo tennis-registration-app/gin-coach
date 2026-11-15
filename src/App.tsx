@@ -66,6 +66,7 @@ function Spread({ cards, small, laidOff }: { cards: Card[]; small?: boolean; lai
   );
 }
 
+const lowerFirst = (t: string) => (t ? t[0].toLowerCase() + t.slice(1) : t);
 const signed = (x: number, digits = 1) => (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(digits);
 
 function describeResult(r: HandResult, winnerName: string, loserName: string): string {
@@ -84,18 +85,50 @@ function describeResult(r: HandResult, winnerName: string, loserName: string): s
   }
 }
 
-function CoachCard({ rec, showNumbers }: { rec: DecisionRecord; showNumbers?: boolean }) {
+function CoachCard({ rec, showNumbers, reveal }: { rec: DecisionRecord; showNumbers?: boolean; reveal?: boolean }) {
   const [open, setOpen] = useState(!!showNumbers);
+  const [why, setWhy] = useState(false);
   const tone = rec.flagged ? 'bad' : rec.tooClose ? 'close' : 'good';
+  const hasWhy = !!rec.why && rec.why.length > 0;
   return (
     <div className={`coach ${tone}`}>
       <p className="headline">{rec.headline}</p>
       {rec.reasons.map((r, i) => (
         <p key={i}>{r}</p>
       ))}
-      <button type="button" className="link" onClick={() => setOpen(!open)}>
-        {open ? 'Hide the numbers' : 'Show the numbers'}
-      </button>
+      <div className="coachlinks">
+        {hasWhy && (
+          <button type="button" className="link" onClick={() => setWhy(!why)} aria-expanded={why}>
+            {why ? 'Hide why' : 'Why?'}
+          </button>
+        )}
+        <button type="button" className="link" onClick={() => setOpen(!open)} aria-expanded={open}>
+          {open ? 'Hide the numbers' : 'Show the numbers'}
+        </button>
+      </div>
+      {why && hasWhy && (
+        <div className="why">
+          <p className="whyhead">
+            Your play ({lowerFirst(rec.chosen)}) compared with: {lowerFirst(rec.versus ?? '')}
+          </p>
+          {rec.why!.map((sec) => (
+            <section key={sec.title}>
+              <h3>{sec.title}</h3>
+              {sec.lines.map((l, i) => (
+                <p key={i}>{l}</p>
+              ))}
+            </section>
+          ))}
+          {reveal && rec.hindsight && rec.hindsight.length > 0 && (
+            <section>
+              <h3>What the hidden cards showed</h3>
+              {rec.hindsight.map((l, i) => (
+                <p key={i}>{l}</p>
+              ))}
+            </section>
+          )}
+        </div>
+      )}
       {open && (
         <table className="numbers">
           <thead>
@@ -197,7 +230,7 @@ function Play({ session, settings, bump }: { session: Session; settings: Setting
     ? `${g.partner} v ${session.partnerOpponentName}: ${describeResult(session.partnerResult, session.partnerResult.winner === 0 ? g.partner : session.partnerOpponentName, session.partnerResult.winner === 0 ? session.partnerOpponentName : g.partner)}`
     : `${g.partner} v ${session.partnerOpponentName}: still playing`;
 
-  const hintText = hint && session.analysis ? session.analysis.options[0].label : null;
+  const hintText = hint && session.analysis ? session.hint() : null;
 
   return (
     <div className="play">
@@ -325,7 +358,7 @@ function Play({ session, settings, bump }: { session: Session; settings: Setting
               Ask the coach first
             </button>
           )}
-          {hintText && <span className="prompt hint">Coach would: {hintText.toLowerCase()}.</span>}
+          {hintText && <span className="prompt hint">{hintText}</span>}
         </div>
       </section>
 
@@ -371,7 +404,7 @@ function Play({ session, settings, bump }: { session: Session; settings: Setting
         </section>
       )}
 
-      {showCoach && <CoachCard key={`${session.handId}-${lastRec.idx}`} rec={lastRec} />}
+      {showCoach && <CoachCard key={`${session.handId}-${lastRec.idx}`} rec={lastRec} reveal={over} />}
 
       <details className="log">
         <summary>Hand log</summary>
@@ -444,9 +477,9 @@ function Review({ session }: { session: Session }) {
           <span className="name">Your hand</span>
           <Spread cards={rec.myHand} />
         </div>
-        <p className="replay-meta">You chose: {rec.chosen.toLowerCase()}.</p>
+        <p className="replay-meta">You chose: {lowerFirst(rec.chosen)}.</p>
       </section>
-      <CoachCard key={`${handRec.id}-${i}`} rec={rec} showNumbers />
+      <CoachCard key={`${handRec.id}-${i}`} rec={rec} showNumbers reveal={!inProgress} />
       <div className="row">
         <button type="button" className="btn" disabled={i === 0} onClick={() => setI(i - 1)}>
           Previous

@@ -2,7 +2,7 @@
 
 Each phase ends with a deploy and a round of play-testing before the next begins. Item numbers refer to the backlog below.
 
-## Phase 1: explanations you can learn from (items 1 and 2)
+## Phase 1: explanations you can learn from (items 1 and 2) — done 15 Nov 2026
 
 The foundation for everything else.
 
@@ -77,7 +77,8 @@ Items collected before and during alpha testing. Order and scope will be set onc
 - Winner of the previous hand deals (was loser).
 - Undercut bonus 20 (was 10) and game to 150 (was 200); coach retrained on the new rules.
 
+- Phase 1: four-check explanations on every verdict (Why panel), flagged-mistake text built from the same checks, hint lists near-equal plays, hindsight notes after the hand.
+
 ## Dropped
 
 - Ask a follow-up through an AI API. Explanations stay inside the app.
-

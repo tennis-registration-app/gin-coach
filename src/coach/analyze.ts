@@ -1,7 +1,8 @@
-import { type Card, VALUE, cardName, rankOf, RANKS } from '../engine/cards';
+import { type Card, VALUE, cardName } from '../engine/cards';
 import { type Action, HandState } from '../engine/hand';
 import { deadwood, discardDeadwoods } from '../engine/melds';
-import { DEAD, MINE, OPP, UNSEEN, cardStatus } from '../bots/policy';
+import { UNSEEN, cardStatus } from '../bots/policy';
+import { compareDiscards, knockCheck, realOuts, type WhySection } from './facts';
 import { type Models } from '../bots/learned';
 import { NK, NV, kFeatures, makeCtx, vFeatures, type Ctx } from './features';
 import { DEFAULT_WEIGHTS, holdWeights, sameAction } from './mc';
@@ -67,6 +68,12 @@ export interface Verdict {
   category: Category | null;
   headline: string;
   reasons: string[];
+  /** the four checks (or the equivalent for draws and knocks) behind the verdict */
+  why: { title: string; lines: string[] }[];
+  /** the play the checks compare yours against */
+  versus: string;
+  /** near-equal alternatives to the best play (within the margin of error) */
+  ties: string[];
   /** game-win chance given up, in percentage points, when the score mattered */
   equityLoss?: number;
   usedMatchScore: boolean;
@@ -227,72 +234,76 @@ function diffStats(a: OptionEval, b: OptionEval): { diff: number; margin: number
 
 const pct = (x: number) => `${Math.round(100 * x)}%`;
 const pts = (x: number) => (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(1);
-const list = (cs: Card[]) => cs.map(cardName).join(', ');
+const cardList = (cs: Card[]) => cs.map(cardName).join(', ');
 
-interface CardFacts {
-  outs: Card[];
-  partnersInHand: Card[];
-  oppRelated: Card[];
-  deadPartners: number;
-  oppThrewSameRank: boolean;
-  inMeld: boolean;
+const isKnock = (a: Action) => a.type === 'biggin' || (a.type === 'discard' && a.knock);
+
+/** Plays that rate within the margin of error of the best one (best first). */
+export function nearTies(an: Analysis): OptionEval[] {
+  const best = an.options[0];
+  return an.options.filter((o) => {
+    if (o === best) return true;
+    const { diff, margin } = diffStats(best, o);
+    return diff < Math.max(1, margin);
+  });
 }
 
-/**
- * Unseen cards that would put `c` into a meld, given the ten cards you would hold.
- * Uses the full meld search, so a partner that is already committed to a better meld
- * (for example a 3 sitting inside a run) does not create a false out.
- */
-export function realOuts(held: readonly Card[], c: Card, st: Uint8Array): Card[] {
-  const without = held.filter((x) => x !== c);
-  // already melded without any help: no outs to speak of
-  if (deadwood(held) < deadwood(without) + VALUE[c]) return [];
-  const outs: Card[] = [];
+function knockSections(s: HandState, st: Uint8Array, knock: OptionEval, wait: OptionEval): { title: string; lines: string[] }[] {
+  const hand = s.hands[s.turn];
+  const out: { title: string; lines: string[] }[] = [];
+  if (knock.nominal) {
+    out.push({ title: 'Going gin', lines: [`Gin scores ${s.rules.ginBonus} plus your opponent's deadwood and cannot be undercut.`] });
+  } else {
+    out.push({
+      title: `Knocking with ${knock.deadwoodAfter}`,
+      lines: [
+        `You win the hand about ${pct(knock.pWin)} of the time and are undercut about ${pct(knock.pLose)}. Average result ${pts(knock.ev)}.`,
+        `An undercut costs ${s.rules.undercutBonus} plus the difference.`,
+      ],
+    });
+  }
+  if (wait.action.type === 'discard') {
+    const k = knockCheck(hand.filter((x) => x !== (wait.action as { card: Card }).card), st, s.knockLimit);
+    out.push({
+      title: `Playing on (discarding the ${cardName(wait.action.card)})`,
+      lines: [
+        `Average result ${pts(wait.ev)}. Your opponent scores in about ${pct(wait.pLose)} of hands from here.`,
+        k.ginDraws.length ? `${k.ginDraws.length} live card${k.ginDraws.length === 1 ? '' : 's'} would give you gin next turn (${cardList(k.ginDraws.slice(0, 6))}), for ${s.rules.ginBonus} plus deadwood.` : 'No single card gives you gin next turn.',
+        `${s.stock.length} cards remain in the stock.`,
+      ],
+    });
+  }
+  return out;
+}
+
+function drawSections(s: HandState, st: Uint8Array, take: OptionEval | undefined, stock: OptionEval): { title: string; lines: string[] }[] {
+  const p = s.turn;
+  const hand = s.hands[p];
+  const top = s.topDiscard;
+  const out: { title: string; lines: string[] }[] = [];
+  if (take && top >= 0) {
+    const d0 = deadwood(hand);
+    const melds = deadwood([...hand, top]) < d0 + VALUE[top];
+    const lines = [
+      melds ? `The ${cardName(top)} completes a meld.` : `The ${cardName(top)} does not complete a meld.`,
+      `Your deadwood would go from ${d0} to ${take.deadwoodAfter ?? '?'} after your discard${take.deadwoodAfter !== undefined && take.deadwoodAfter <= s.knockLimit ? ', enough to knock' : ''}.`,
+      'Your opponent sees which card you took.',
+      `Average result ${pts(take.ev)}.`,
+    ];
+    out.push({ title: `Taking the ${cardName(top)}`, lines });
+  }
+  let unseen = 0;
+  let hits = 0;
   for (let x = 0; x < 52; x++) {
     if (st[x] !== UNSEEN) continue;
-    if (deadwood([...held, x]) < deadwood([...without, x]) + VALUE[c]) outs.push(x);
+    unseen++;
+    if (deadwood([...hand, x]) < deadwood(hand) + VALUE[x]) hits++;
   }
-  return outs;
-}
-
-/** Facts about card `c` in the 11-card hand, assuming `other` is the card discarded instead. */
-function cardFacts(s: HandState, p: number, c: Card, st: Uint8Array, other: Card): CardFacts {
-  const hand = s.hands[p];
-  const held = hand.filter((x) => x !== other);
-  const outs = other >= 0 && other !== c ? realOuts(held, c, st) : [];
-  const r = c % 13;
-  const b = c - r;
-  const partners: Card[] = [];
-  const oppRelated: Card[] = [];
-  let deadPartners = 0;
-  for (let s2 = 0; s2 < 4; s2++) {
-    const o = s2 * 13 + r;
-    if (o === c) continue;
-    if (st[o] === MINE) partners.push(o);
-    if (st[o] === OPP) oppRelated.push(o);
-    if (st[o] === DEAD) deadPartners++;
-  }
-  for (const dr of [-2, -1, 1, 2]) {
-    const rr = r + dr;
-    if (rr < 0 || rr > 12) continue;
-    const o = b + rr;
-    if (Math.abs(dr) === 1 && st[o] === MINE) partners.push(o);
-    if (st[o] === OPP) oppRelated.push(o);
-  }
-  const inMeld = deadwood(hand.filter((x) => x !== c)) > deadwood(hand) - VALUE[c];
-  const oppThrewSameRank = s.discards[1 - p].some((x) => rankOf(x) === r);
-  return { outs, partnersInHand: partners, oppRelated, deadPartners, oppThrewSameRank, inMeld };
-}
-
-function dangerNote(c: Card, f: CardFacts): string | null {
-  if (f.oppRelated.length) return `Your opponent picked up the ${list(f.oppRelated)}, so the ${cardName(c)} may be exactly what they need.`;
-  return null;
-}
-
-function safetyNote(c: Card, f: CardFacts): string | null {
-  if (f.deadPartners >= 2) return `The ${cardName(c)} is a safe throw for sets: ${f.deadPartners} of the other ${RANKS[c % 13]}s are already in the pile.`;
-  if (f.oppThrewSameRank) return `Your opponent has thrown a ${RANKS[c % 13]} already, so they are unlikely to want the ${cardName(c)}.`;
-  return null;
+  out.push({
+    title: stock.action.type === 'pass' ? 'Passing' : 'Drawing from the stock',
+    lines: [`${hits} of the ${unseen} cards you have not seen would complete a meld.`, 'Your opponent learns nothing about your hand.', `Average result ${pts(stock.ev)}.`],
+  });
+  return out;
 }
 
 /** Compare the player's action with the analysis and explain. */
@@ -300,7 +311,6 @@ export function judge(s: HandState, an: Analysis, userAction: Action, useMatch =
   const p = s.turn;
   let chosen = an.options.find((o) => sameAction(o.action, userAction));
   if (!chosen) {
-    // e.g. a knock with a non-minimal discard that was not enumerated: fall back to nearest option
     chosen = an.options.find((o) => o.action.type === userAction.type && (o.action as { card?: Card }).card === (userAction as { card?: Card }).card) ?? an.options[an.options.length - 1];
   }
   let best = an.options[0];
@@ -323,9 +333,33 @@ export function judge(s: HandState, an: Analysis, userAction: Action, useMatch =
   let flagged = !same && loss >= threshold && loss > margin;
   if (usedMatchScore && !same && (equityLoss ?? 0) >= 1.5) flagged = true;
   const tooClose = !same && !flagged && loss > 0.3;
-  const v: Verdict = { chosen, best, loss: same ? 0 : loss, margin, flagged, tooClose, category: null, headline: '', reasons: [], equityLoss, usedMatchScore };
+  const ties = nearTies(an)
+    .filter((o) => o !== chosen)
+    .map((o) => o.label);
+  const v: Verdict = { chosen, best, loss: same ? 0 : loss, margin, flagged, tooClose, category: null, headline: '', reasons: [], why: [], versus: '', ties, equityLoss, usedMatchScore };
+  const st = cardStatus(s, p).slice();
+
+  // the play to compare yours against: the coach's best, or the runner-up when you found the best
+  const other = same ? an.options.find((o) => o !== chosen) : best;
+  let sections: WhySection[] = [];
+  if (other) {
+    v.versus = other.label;
+    if (an.kind === 'draw') {
+      const take = [chosen, other].find((o) => o.action.type === 'take');
+      const stock = [chosen, other].find((o) => o.action.type !== 'take')!;
+      v.why = drawSections(s, st, take, stock);
+    } else if (isKnock(chosen.action) !== isKnock(other.action)) {
+      const knock = isKnock(chosen.action) ? chosen : other;
+      const wait = isKnock(chosen.action) ? other : chosen;
+      v.why = knockSections(s, st, knock, wait);
+    } else if (chosen.action.type === 'discard' && other.action.type === 'discard' && chosen.action.card !== other.action.card) {
+      sections = compareDiscards(s, p, st, chosen.action.card, other.action.card);
+      v.why = sections.map(({ title, lines }) => ({ title, lines }));
+    }
+  }
+
   if (same) {
-    v.headline = 'Good move. The coach agrees.';
+    v.headline = ties.length ? `Good move. The coach rates ${ties.slice(0, 3).join(', ')} about the same.` : 'Good move. The coach agrees.';
     return v;
   }
   if (!flagged) {
@@ -335,15 +369,12 @@ export function judge(s: HandState, an: Analysis, userAction: Action, useMatch =
     return v;
   }
   v.headline = `Mistake: about ${loss.toFixed(1)} points (±${margin.toFixed(1)}). Better: ${best.label}.`;
-  const st = cardStatus(s, p).slice();
   const R = v.reasons;
   if (an.kind === 'draw') {
     v.category = 'pile';
     const top = s.topDiscard;
     const hand = s.hands[p];
-    const d0 = deadwood(hand);
-    const d11 = deadwood([...hand, top]);
-    const melds = d11 < d0 + VALUE[top];
+    const melds = deadwood([...hand, top]) < deadwood(hand) + VALUE[top];
     if (userAction.type === 'take') {
       if (!melds) R.push(`The ${cardName(top)} does not complete a meld. Taking it tells your opponent what you are collecting and gives up a fresh card from the stock.`);
       else R.push(`The ${cardName(top)} does join a meld, but the coach rates a stock draw higher here: your hand has enough live cards in the stock, and taking shows your opponent your holding.`);
@@ -359,8 +390,8 @@ export function judge(s: HandState, an: Analysis, userAction: Action, useMatch =
     }
     if (an.approximate) R.push('Opening pass-or-take decisions are estimated more roughly than other moves.');
   } else {
-    const bestKnock = best.action.type === 'biggin' || (best.action.type === 'discard' && best.action.knock);
-    const userKnock = userAction.type === 'biggin' || (userAction.type === 'discard' && userAction.knock);
+    const bestKnock = isKnock(best.action);
+    const userKnock = isKnock(userAction);
     const uc = userAction.type === 'discard' ? userAction.card : -1;
     const bc = best.action.type === 'discard' ? best.action.card : -1;
     if (bestKnock && !userKnock) {
@@ -374,37 +405,16 @@ export function judge(s: HandState, an: Analysis, userAction: Action, useMatch =
       v.category = 'knock-early';
       R.push(`Knocking with ${chosen.deadwoodAfter} is worth about ${pts(chosen.ev)} (undercut risk about ${pct(chosen.pLose)}). Playing on by discarding the ${cardName(bc)} is worth about ${pts(best.ev)}.`);
       R.push(`Gin pays ${s.rules.ginBonus} plus deadwood against a small gain for the knock, an undercut costs ${s.rules.undercutBonus} plus the difference, and your hand has good chances to improve before your opponent is ready.`);
-    } else if (uc >= 0 && bc >= 0) {
-      const fu = cardFacts(s, p, uc, st, bc);
-      const fb = cardFacts(s, p, bc, st, uc);
-      const dwGap = (chosen.deadwoodAfter ?? 0) - (best.deadwoodAfter ?? 0);
-      const du = dangerNote(uc, fu);
-      if (userKnock && bestKnock) {
-        v.category = 'other';
-        R.push(`Both plays knock, but discarding the ${cardName(bc)} leaves you ${best.deadwoodAfter} deadwood instead of ${chosen.deadwoodAfter}.`);
-      } else if (fu.inMeld || dwGap >= 6) {
-        v.category = fu.inMeld ? 'broke-combo' : 'high-cards';
-        if (fu.inMeld) R.push(`The ${cardName(uc)} was part of a meld. Throwing it leaves ${chosen.deadwoodAfter} deadwood instead of ${best.deadwoodAfter}.`);
-        else R.push(`Discarding the ${cardName(bc)} leaves ${best.deadwoodAfter} deadwood; your play leaves ${chosen.deadwoodAfter}. The ${cardName(bc)} is ${VALUE[bc]} points you are still carrying${fb.outs.length ? '' : ' with no live card that melds it'}.`);
-      } else if (du && !fb.oppRelated.length) {
-        v.category = 'feeding';
-        R.push(du);
-        const sb = safetyNote(bc, fb);
-        if (sb) R.push(sb);
-      } else if (fu.outs.length > fb.outs.length) {
-        v.category = 'broke-combo';
-        R.push(`The ${cardName(uc)} could still have joined a meld: ${fu.outs.length} live card${fu.outs.length === 1 ? '' : 's'} (${list(fu.outs)}) would have completed one.`);
-        R.push(fb.outs.length ? `The ${cardName(bc)} has fewer ways to improve (${list(fb.outs)}).` : `The ${cardName(bc)} has no live card that would meld it.`);
-      } else if (VALUE[bc] - VALUE[uc] >= 3) {
-        v.category = 'high-cards';
-        R.push(`The ${cardName(bc)} costs you ${VALUE[bc]} points if your opponent knocks; the ${cardName(uc)} costs ${VALUE[uc]}. Their chances of improving your hand are similar${fb.outs.length ? '' : ` (the ${cardName(bc)} has no live card that melds it)`}.`);
-      } else {
-        v.category = du ? 'feeding' : 'other';
-        if (du) R.push(du);
-        const sb = safetyNote(bc, fb);
-        if (sb) R.push(sb);
-        if (fb.outs.length < fu.outs.length || !R.length) R.push(`The ${cardName(bc)} does less for your hand than the ${cardName(uc)}: ${fb.outs.length} live melding card${fb.outs.length === 1 ? '' : 's'} versus ${fu.outs.length}.`);
-      }
+    } else if (userKnock && bestKnock) {
+      v.category = 'other';
+      R.push(`Both plays knock, but discarding the ${cardName(bc)} leaves you ${best.deadwoodAfter} deadwood instead of ${chosen.deadwoodAfter}.`);
+    } else if (uc >= 0 && bc >= 0 && sections.length) {
+      // the checks that favour the coach's play, biggest difference first (sections compare yours, then the coach's)
+      const against = sections.filter((x) => x.favours === -1 && x.weight > 0);
+      const lead = against[0] ?? sections[0];
+      v.category = lead.title.startsWith('How safe') ? 'feeding' : lead.title.startsWith('What could') ? 'broke-combo' : 'high-cards';
+      for (const sec of against.slice(0, 2)) for (const line of sec.lines) R.push(line);
+      if (!against.length) R.push(`The four checks are close; the difference comes from how the coach's model weighs them together.`);
       R.push(`Expected result: ${pts(chosen.ev)} for your discard versus ${pts(best.ev)} for the ${cardName(bc)}.`);
     } else {
       v.category = 'other';
@@ -414,4 +424,4 @@ export function judge(s: HandState, an: Analysis, userAction: Action, useMatch =
   return v;
 }
 
-export { UNSEEN };
+export { UNSEEN, realOuts };

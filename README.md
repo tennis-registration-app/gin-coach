@@ -27,6 +27,8 @@ It rates each option in expected points for the hand, using two small neural net
 - a position model that estimates the result of the hand after each possible discard, from features such as deadwood, the number of live cards that would complete a meld, how many draws would let you knock or gin, how far the stock has run down, and how dangerous the discard is given what the opponent has shown;
 - a knock model that estimates the result of knocking now, including the chance of being undercut.
 
+Every verdict carries a Why panel comparing your play with the coach's on four checks, computed with the same meld search as the numbers: what could still improve each card, whether your opponent could use the discard, what each card costs if your opponent goes out, and which draws would then let you knock or gin.
+
 Draw decisions are rated by looking one draw ahead: the value of taking the pile card against the average over every card that could come off the stock.
 
 A move is flagged only when the estimated loss is at least 1.5 points (3 for draw decisions) and larger than the coach's margin of error, which comes from the disagreement among three independently trained copies of each model. Closer calls are reported as close calls. Flagged mistakes are sorted into categories (discard-pile decisions, holding high cards, feeding the opponent, breaking up combinations, knocking too early, knocking too late), and the Progress tab shows points lost per hand in each.
