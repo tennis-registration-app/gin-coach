@@ -447,6 +447,56 @@ p {
   border-top: 0;
   font-size: 0.8rem;
 }
+.drillpick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 10px 0;
+}
+.practice .coach .btn.primary {
+  border-color: var(--baize-deep);
+  background: var(--baize-deep);
+  color: var(--ivory);
+  margin-top: 10px;
+}
+.lessons details {
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 10px 0;
+}
+.lessons summary {
+  cursor: pointer;
+  font-family: var(--display);
+  font-size: 1.05rem;
+}
+.lessons p {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.scroll {
+  overflow-x: auto;
+}
+.lesson {
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  margin-top: 6px;
+}
+.lesson th,
+.lesson td {
+  text-align: left;
+  padding: 5px 14px 5px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.lesson thead th {
+  color: var(--muted);
+  border-top: 0;
+  white-space: normal;
+  min-width: 96px;
+  vertical-align: bottom;
+}
 .takeback {
   display: flex;
   flex-wrap: wrap;
@@ -713,11 +763,11 @@ select {
     margin-left: calc(var(--cw) * -0.47);
   }
   .tabs button {
-    padding: 8px 6px;
-    font-size: 0.92rem;
+    padding: 8px 4px;
+    font-size: 0.84rem;
   }
   .tabs .brand {
-    font-size: 1.15rem;
+    font-size: 1.02rem;
   }
 }
 @media (prefers-reduced-motion: reduce) {

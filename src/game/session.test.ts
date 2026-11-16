@@ -6,6 +6,8 @@ import { simplePolicy } from '../bots/policy';
 import type { ModelFile } from '../coach/model';
 import modelJson from '../coach/model.json';
 import { ME, Session } from './session';
+import { drillCorrect, generateDrill, loadState, saveState, suitsDrill } from './drills';
+import { analyze, judge } from '../coach/analyze';
 
 const models = loadModels(modelJson as unknown as ModelFile);
 
@@ -206,6 +208,49 @@ describe('partnership game flow', () => {
       }
     }
     expect(quizzes).toBeGreaterThan(5);
+  });
+
+  it('generates drills of each kind and round-trips saved positions', () => {
+    const rng = makeRng(31);
+    for (const kind of ['knock', 'discard', 'draw'] as const) {
+      for (let i = 0; i < 4; i++) {
+        const s = generateDrill(kind, HOUSE_RULES, models, rng)!;
+        expect(s).toBeTruthy();
+        const an = analyze(s, models);
+        expect(suitsDrill(s, an, kind)).toBe(true);
+        if (kind === 'draw') expect(s.phase).toBe('draw');
+        else expect(s.hands[s.turn].length).toBe(11);
+        if (kind === 'knock') expect(an.options.some((o) => o.action.type === 'discard' && o.action.knock)).toBe(true);
+        // the coach's own best play always counts as right
+        expect(drillCorrect(judge(s, an, an.options[0].action, false))).toBe(true);
+        // saving and reloading a position reproduces the same analysis
+        const again = analyze(loadState(JSON.parse(JSON.stringify(saveState(s))), HOUSE_RULES), models);
+        expect(again.options.map((o) => [o.label, o.ev.toFixed(5)])).toEqual(an.options.map((o) => [o.label, o.ev.toFixed(5)]));
+      }
+    }
+  }, 120000);
+
+  it('keeps the full position on flagged mistakes so they can be replayed', () => {
+    const sess = new Session(HOUSE_RULES, models, 'easy', 5);
+    let found = 0;
+    let guard = 0;
+    while (sess.hand.phase !== 'over' && guard++ < 300) {
+      if (!sess.myTurn) {
+        sess.stepOpponent();
+        continue;
+      }
+      const opts = sess.analysis!.options;
+      const v = sess.act(opts[opts.length - 1].action);
+      const rec = sess.records[sess.records.length - 1];
+      if (v.flagged) {
+        found++;
+        const s = loadState(rec.state!, HOUSE_RULES);
+        expect(s.turn).toBe(ME);
+        expect([...s.hands[ME]].sort()).toEqual([...rec.myHand].sort());
+        expect(analyze(s, models).options[0].label).toBe(rec.best);
+      } else expect(rec.state).toBeUndefined();
+    }
+    expect(found).toBeGreaterThan(0);
   });
 
   it('reveals the partner result only once enough turns have passed', () => {

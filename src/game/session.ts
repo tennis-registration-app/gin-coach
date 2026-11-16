@@ -6,6 +6,7 @@ import { type Models, makeLearned } from '../bots/learned';
 import { type Analysis, type Category, type MatchContext, type Verdict, actionLabel, analyze, judge } from '../coach/analyze';
 import { hindsight } from '../coach/facts';
 import { type Quiz, makeQuiz } from './quiz';
+import { type SavedState, saveState } from './drills';
 
 export type BotLevel = 'easy' | 'medium' | 'strong' | 'expert';
 export const LEVEL_LABEL: Record<BotLevel, string> = {
@@ -47,6 +48,8 @@ export interface DecisionRecord {
   retried?: boolean;
   /** this was a second attempt after taking a play back (not counted in your statistics) */
   retry?: boolean;
+  /** the full position, kept for flagged mistakes so they can be replayed as drills */
+  state?: SavedState;
 }
 
 export interface HandSummary {
@@ -296,6 +299,7 @@ export class Session {
       versus: v.versus,
       hindsight: this.hindsightFor(a, v),
       retry: this.retrying || undefined,
+      state: v.flagged ? saveState(s) : undefined,
     });
     this.retrying = false;
     this.events = [];

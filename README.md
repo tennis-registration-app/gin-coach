@@ -33,6 +33,8 @@ Two optional aids build on this. With "Coach my options" switched on, the coach 
 
 Card-tracking help comes in three levels, set in the Rules tab: the whole discard pile and the opponent's pickups kept visible; the top card only, with a counted check of the pile; or no help, with about one memory question a hand. Progress reports results at each level.
 
+The Practice tab offers drills: generated positions for knock decisions, discards and pile-card decisions, a mix weighted toward the categories where your flagged points have gone, and replays of your own flagged mistakes (kept with their full position). It also shows four tables built by `sim/lessons.ts` from bot self-play: what actually happens when you knock, when the coach prefers to knock, how live gin cards change that, and when it prefers the pile card.
+
 Draw decisions are rated by looking one draw ahead: the value of taking the pile card against the average over every card that could come off the stock.
 
 A move is flagged only when the estimated loss is at least 1.5 points (3 for draw decisions) and larger than the coach's margin of error, which comes from the disagreement among three independently trained copies of each model. Closer calls are reported as close calls. Flagged mistakes are sorted into categories (discard-pile decisions, holding high cards, feeding the opponent, breaking up combinations, knocking too early, knocking too late), and the Progress tab shows points lost per hand in each.
@@ -96,6 +98,7 @@ python3 sim/train.py data/model1.json g0_1
 sim/iterate.sh data/model1.json g1 45000        # repeat until the new model stops beating the old
 cp data/model_g1.json src/coach/model.json
 npx tsx sim/equity.ts src/coach/model.json 60000
+npx tsx sim/lessons.ts 20000                    # rebuild the lesson tables
 npx tsx sim/lv.ts src/coach/model.json 5000 strong simple
 ```
 

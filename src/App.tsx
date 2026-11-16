@@ -7,11 +7,16 @@ import { CATEGORY_LABEL, type Category } from './coach/analyze';
 import type { ModelFile } from './coach/model';
 import modelJson from './coach/model.json';
 import { LEVEL_LABEL, ME, OPP, Session, type BotLevel, type DecisionRecord, type HandSummary } from './game/session';
-import { clearHistory, loadHands, loadRecords, loadSettings, saveHand, saveSettings, type Settings } from './game/storage';
+import { clearHistory, loadDrillStats, loadHands, loadMistakes, loadRecords, loadSettings, recordDrill, saveHand, saveSettings, type Settings } from './game/storage';
+import { DRILL_LABEL, drillCorrect, drillForCategory, generateDrill, loadState, type DrillKind } from './game/drills';
+import { analyze, judge, type Verdict } from './coach/analyze';
+import { HandState } from './engine/hand';
+import { makeRng } from './engine/cards';
+import lessonData from './coach/lessons.json';
 
 const models = loadModels(modelJson as unknown as ModelFile);
 
-type Tab = 'play' | 'review' | 'progress' | 'rules';
+type Tab = 'play' | 'practice' | 'review' | 'progress' | 'rules';
 
 function CardView({ card, selected, onClick, small, dim, tag, fresh }: { card: Card; selected?: boolean; onClick?: () => void; small?: boolean; dim?: boolean; tag?: string; fresh?: boolean }) {
   const red = suitOf(card) === 1 || suitOf(card) === 2;
@@ -633,6 +638,371 @@ function Review({ session }: { session: Session }) {
 
 const CATS = Object.keys(CATEGORY_LABEL) as Category[];
 
+type DrillChoice = 'mixed' | 'mistakes' | DrillKind;
+const drillRng = makeRng((Date.now() ^ 0x5bd1e995) >>> 0);
+
+interface LessonCell {
+  n: number;
+  winPct?: number;
+  undercutPct?: number;
+  avgPts?: number;
+  coachKnockPct?: number;
+  edge?: number;
+  takePct?: number;
+}
+const L = lessonData as unknown as {
+  hands: number;
+  rules: { undercut: number; gin: number };
+  stages: string[];
+  knock: (LessonCell | null)[][];
+  gin: (LessonCell | null)[];
+  pile: Record<string, (LessonCell | null)[]>;
+};
+
+function Lessons() {
+  const dws = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const cell = (c: LessonCell | null | undefined, f: (c: LessonCell) => string) => (c ? f(c) : '');
+  return (
+    <div className="lessons">
+      <p className="note">
+        These tables come from {L.hands.toLocaleString()} hands of the trained bot playing itself under your table’s rules (gin {L.rules.gin}, undercut {L.rules.undercut}). The first shows what actually happened; the others show what the coach’s models prefer. The bot keeps playing when it is close to gin, so positions from the middle and late stages lean toward hands with gin chances. Blank cells had too few cases to report.
+      </p>
+
+      <details>
+        <summary>What happens when you knock</summary>
+        <p>
+          Each cell is the share of knocks that won, and the average points the knock scored (undercuts counted as losses), measured against the opponent’s real hand at that moment.
+        </p>
+        <div className="scroll">
+          <table className="lesson">
+            <thead>
+              <tr>
+                <th scope="col">Knocking with</th>
+                {L.stages.map((st) => (
+                  <th scope="col" key={st}>
+                    {st}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {dws.map((d) => (
+                <tr key={d}>
+                  <th scope="row">{d}</th>
+                  {L.stages.map((_, i) => (
+                    <td key={i}>{cell(L.knock[i][d], (c) => `${c.winPct}% won, ${signed(c.avgPts ?? 0)}`)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <details>
+        <summary>When the coach prefers to knock</summary>
+        <p>The share of positions in which the coach rated knocking above playing on, and by how many points on average (negative means playing on rated higher).</p>
+        <div className="scroll">
+          <table className="lesson">
+            <thead>
+              <tr>
+                <th scope="col">Deadwood</th>
+                {L.stages.map((st) => (
+                  <th scope="col" key={st}>
+                    {st}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {dws.map((d) => (
+                <tr key={d}>
+                  <th scope="row">{d}</th>
+                  {L.stages.map((_, i) => (
+                    <td key={i}>{cell(L.knock[i][d], (c) => `knock ${c.coachKnockPct}%, ${signed(c.edge ?? 0)}`)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <details>
+        <summary>Live gin cards and the decision to knock</summary>
+        <p>When you could knock, how the number of cards that would give you gin next turn changes the coach’s preference.</p>
+        <table className="lesson">
+          <thead>
+            <tr>
+              <th scope="col">Live gin cards</th>
+              <th scope="col">Coach prefers knocking</th>
+              <th scope="col">Average edge for knocking</th>
+            </tr>
+          </thead>
+          <tbody>
+            {L.gin.map((c, i) => (
+              <tr key={i}>
+                <th scope="row">{i === 4 ? '4 or more' : i}</th>
+                <td>{cell(c, (x) => `${x.coachKnockPct}%`)}</td>
+                <td>{cell(c, (x) => signed(x.edge ?? 0))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+
+      <details>
+        <summary>Taking the pile card</summary>
+        <p>How often the coach prefers taking the top discard, by what the card does for your hand. This is the least tested part of the coach’s advice.</p>
+        <div className="scroll">
+          <table className="lesson">
+            <thead>
+              <tr>
+                <th scope="col">The pile card</th>
+                {L.stages.map((st) => (
+                  <th scope="col" key={st}>
+                    {st}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(
+                [
+                  ['new', 'Adds a meld cleanly'],
+                  ['swap', 'Melds only by breaking another meld'],
+                  ['none', 'Does not meld'],
+                ] as const
+              ).map(([k, label]) => (
+                <tr key={k}>
+                  <th scope="row">{label}</th>
+                  {L.stages.map((_, i) => (
+                    <td key={i}>{cell(L.pile[k]?.[i], (c) => `take ${c.takePct}%`)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function Practice({ settings }: { settings: Settings }) {
+  const [choice, setChoice] = useState<DrillChoice>('mixed');
+  const [pos, setPos] = useState<HandState | null>(null);
+  const [kind, setKind] = useState<string>('');
+  const [note, setNote] = useState('');
+  const [sel, setSel] = useState<Card | null>(null);
+  const [verdict, setVerdict] = useState<Verdict | null>(null);
+  const [tally, setTally] = useState({ tried: 0, right: 0 });
+  const [mistakeIdx, setMistakeIdx] = useState(0);
+  const mistakes = useMemo(() => loadMistakes().reverse(), [pos]); // eslint-disable-line
+  const stats = useMemo(() => loadDrillStats(), [verdict]); // eslint-disable-line
+  const an = useMemo(() => (pos ? analyze(pos, models) : null), [pos]);
+
+  const next = (which: DrillChoice = choice) => {
+    setSel(null);
+    setVerdict(null);
+    setNote('');
+    if (which === 'mistakes') {
+      if (mistakes.length === 0) {
+        setPos(null);
+        setNote('No saved mistakes yet. Mistakes the coach flags at the table from now on are kept here to replay.');
+        return;
+      }
+      const mk = mistakes[mistakeIdx % mistakes.length];
+      setMistakeIdx(mistakeIdx + 1);
+      setKind('mistakes');
+      setNote(`From your own play. You chose: ${lowerFirst(mk.played)} (about ${mk.loss.toFixed(1)} points lost).`);
+      setPos(loadState(mk.state, settings.rules));
+      return;
+    }
+    let k: DrillKind;
+    if (which === 'mixed') {
+      // weight the kinds of drill by where your flagged points have gone
+      const w: Record<DrillKind, number> = { knock: 1, discard: 1, draw: 1 };
+      for (const h of loadHands().slice(-200)) for (const c of CATS) w[drillForCategory(c)] += h.lossByCat[c] ?? 0;
+      let r = drillRng() * (w.knock + w.discard + w.draw);
+      k = (r -= w.knock) < 0 ? 'knock' : (r -= w.discard) < 0 ? 'discard' : 'draw';
+    } else k = which;
+    const s = generateDrill(k, settings.rules, models, drillRng);
+    setKind(k);
+    if (!s) setNote('Could not find a suitable position this time. Try again.');
+    setPos(s);
+  };
+
+  const answer = (a: Action) => {
+    if (!pos || !an || verdict) return;
+    const v = judge(pos, an, a, false);
+    recordDrill(kind, drillCorrect(v));
+    setTally({ tried: tally.tried + 1, right: tally.right + (drillCorrect(v) ? 1 : 0) });
+    setVerdict(v);
+  };
+
+  const p = pos ? pos.turn : 0;
+  const hand = pos ? pos.hands[p] : [];
+  const arr = pos ? arrange(hand) : null;
+  const top = pos ? pos.topDiscard : -1;
+  const selDw = pos && sel !== null ? deadwood(hand.filter((c) => c !== sel)) : null;
+  const seen: Card[] = [];
+  if (pos) for (let c = 0; c < 52; c++) if (pos.known[1 - p][c]) seen.push(c);
+  const handCard = (c: Card) => (
+    <CardView key={c} card={c} selected={sel === c} tag={pos && c === pos.justDrew ? 'just drawn' : undefined} fresh={!!pos && c === pos.justDrew} onClick={pos && pos.phase === 'discard' && !verdict ? () => setSel(sel === c ? null : c) : undefined} />
+  );
+
+  return (
+    <div className="practice">
+      <h2>Drills</h2>
+      <div className="row drillpick">
+        <label>
+          Drill{' '}
+          <select
+            value={choice}
+            onChange={(e) => {
+              setChoice(e.target.value as DrillChoice);
+              setPos(null);
+              setVerdict(null);
+              setNote('');
+            }}
+          >
+            <option value="mixed">Mixed, weighted toward your leaks</option>
+            <option value="mistakes">Replay my mistakes ({mistakes.length} saved)</option>
+            <option value="knock">{DRILL_LABEL.knock}</option>
+            <option value="discard">{DRILL_LABEL.discard}</option>
+            <option value="draw">{DRILL_LABEL.draw}</option>
+          </select>
+        </label>
+        <button type="button" className="btn primary" onClick={() => next()}>
+          {pos ? 'Next position' : 'Start'}
+        </button>
+        {tally.tried > 0 && (
+          <span className="note">
+            This session: {tally.right} of {tally.tried} right
+          </span>
+        )}
+      </div>
+      {note && <p className="note">{note}</p>}
+
+      {pos && arr && (
+        <section className="felt">
+          <p className="replay-meta">
+            {kind === 'mistakes' ? 'Your move again' : DRILL_LABEL[kind as DrillKind]}. {pos.knockLimit === 0 ? 'Gin only' : `Knock at ${pos.knockLimit} or less`}. {pos.stock.length} in the stock.
+            {seen.length > 0 ? ` Your opponent has picked up ${seen.map(cardName).join(', ')}.` : ''}
+          </p>
+          <div className="pile" aria-label="Discard pile, oldest first">
+            <span className="count">Discard pile, oldest first; the last card is on top</span>
+            <div className="pilecards">
+              {pos.discard.map((c, i) => (
+                <CardView key={c} card={c} small tag={pos.discardBy[i] === p ? 'you' : pos.discardBy[i] === 1 - p ? 'them' : i === 0 && pos.discardBy.length ? 'upcard' : undefined} />
+              ))}
+            </div>
+          </div>
+          <div className="me">
+            <div className="handrow">
+              {arr.melds.map((mm, i) => (
+                <div className="group meld" key={i}>
+                  {mm.map(handCard)}
+                </div>
+              ))}
+              <div className="group">{arr.deadwoodCards.map(handCard)}</div>
+            </div>
+            <p className="deadwood">
+              Deadwood {arr.deadwood}
+              {selDw !== null && sel !== null ? `, ${selDw} after discarding the ${cardName(sel)}` : ''}
+            </p>
+          </div>
+          {verdict && (
+            <div className="opp">
+              <span className="name">Your opponent was holding</span>
+              <Spread cards={pos.hands[1 - p]} small />
+            </div>
+          )}
+          {!verdict && (
+            <div className="actions">
+              {pos.phase === 'draw' && (
+                <>
+                  <button type="button" className="btn" onClick={() => answer({ type: 'take' })}>
+                    Take the {cardName(top)}
+                  </button>
+                  <button type="button" className="btn" onClick={() => answer(pos.opening <= 1 ? { type: 'pass' } : { type: 'stock' })}>
+                    {pos.opening <= 1 ? 'Pass' : 'Draw from the stock'}
+                  </button>
+                </>
+              )}
+              {pos.phase === 'discard' && arr.deadwood === 0 && (
+                <button type="button" className="btn primary" onClick={() => answer({ type: 'biggin' })}>
+                  Declare eleven-card gin
+                </button>
+              )}
+              {pos.phase === 'discard' && sel === null && <span className="prompt">Tap the card you would discard.</span>}
+              {pos.phase === 'discard' && sel !== null && sel === pos.justTaken && <span className="prompt">You can’t discard the card you just took.</span>}
+              {pos.phase === 'discard' && sel !== null && sel !== pos.justTaken && (
+                <>
+                  <button type="button" className="btn" onClick={() => answer({ type: 'discard', card: sel, knock: false })}>
+                    Discard the {cardName(sel)}
+                  </button>
+                  {selDw !== null && selDw <= pos.knockLimit && (
+                    <button type="button" className="btn primary" onClick={() => answer({ type: 'discard', card: sel, knock: true })}>
+                      {selDw === 0 ? 'Go gin' : `Knock with ${selDw}`}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
+      {verdict && (
+        <div className={`coach ${drillCorrect(verdict) ? 'good' : 'bad'}`}>
+          <p className="headline">
+            {verdict.chosen === verdict.best
+              ? 'Right. That is the coach’s best play.'
+              : drillCorrect(verdict)
+                ? `Right. The coach rates "${verdict.best.label}" about the same.`
+                : `The coach prefers "${verdict.best.label}" by about ${verdict.loss.toFixed(1)} points (±${verdict.margin.toFixed(1)}).`}
+          </p>
+          {verdict.why.length > 0 && (
+            <div className="why open">
+              <p className="whyhead">
+                Your play ({lowerFirst(verdict.chosen.label)}) compared with: {lowerFirst(verdict.versus)}
+              </p>
+              {verdict.why.map((sec) => (
+                <section key={sec.title}>
+                  <h3>{sec.title}</h3>
+                  {sec.lines.map((l, i) => (
+                    <p key={i}>{l}</p>
+                  ))}
+                </section>
+              ))}
+            </div>
+          )}
+          <button type="button" className="btn primary" onClick={() => next()}>
+            Next position
+          </button>
+        </div>
+      )}
+
+      {Object.keys(stats).length > 0 && (
+        <p className="note">
+          All time:{' '}
+          {Object.entries(stats)
+            .map(([k, v]) => `${k === 'mistakes' ? 'replayed mistakes' : DRILL_LABEL[k as DrillKind].toLowerCase()} ${v.right} of ${v.tried}`)
+            .join('; ')}
+          .
+        </p>
+      )}
+
+      <h2>Lessons from the trained coach</h2>
+      <Lessons />
+    </div>
+  );
+}
+
+
+
 function leakPerHand(hands: HandSummary[]): Record<Category, number> {
   const out = Object.fromEntries(CATS.map((c) => [c, 0])) as Record<Category, number>;
   for (const h of hands) for (const c of CATS) out[c] += h.lossByCat[c] ?? 0;
@@ -878,6 +1248,7 @@ export default function App() {
         {(
           [
             ['play', 'Table'],
+            ['practice', 'Practice'],
             ['review', 'Review'],
             ['progress', 'Progress'],
             ['rules', 'Rules'],
@@ -890,6 +1261,7 @@ export default function App() {
       </nav>
       <main>
         {tab === 'play' && <Play session={session} settings={settings} bump={bump} update={update} />}
+        {tab === 'practice' && <Practice settings={settings} />}
         {tab === 'review' && <Review session={session} />}
         {tab === 'progress' && <Progress version={version + (tab === 'progress' ? 1 : 0)} />}
         {tab === 'rules' && (
