@@ -5,6 +5,7 @@ import { heuristicPolicy, playHand, simplePolicy, type Policy } from '../bots/po
 import { type Models, makeLearned } from '../bots/learned';
 import { type Analysis, type Category, type MatchContext, type Verdict, actionLabel, analyze, judge } from '../coach/analyze';
 import { hindsight } from '../coach/facts';
+import { type Quiz, makeQuiz } from './quiz';
 
 export type BotLevel = 'easy' | 'medium' | 'strong' | 'expert';
 export const LEVEL_LABEL: Record<BotLevel, string> = {
@@ -63,6 +64,12 @@ export interface HandSummary {
   totalLoss: number;
   /** the coach rated options before you chose at least once in this hand */
   aided?: boolean;
+  /** card-tracking help in use: open pile, peek on request, or none */
+  tracking?: 'open' | 'peek' | 'none';
+  /** times you checked the pile (peek level) */
+  peeks?: number;
+  quizAsked?: number;
+  quizCorrect?: number;
 }
 
 export interface RoundResult {
@@ -112,6 +119,14 @@ export class Session {
   round: RoundResult | null = null;
   useMatchScore = true;
   handId = '';
+  /** card-tracking help in use for this hand (set by the interface) */
+  tracking: 'open' | 'peek' | 'none' = 'open';
+  peeks = 0;
+  quiz: Quiz | null = null;
+  quizAsked = 0;
+  quizCorrect = 0;
+  private quizAt = 99;
+  private quizDone = false;
   /** true once the coach has rated options for you before a choice in this hand */
   aided = false;
   /** when set, the opponent waits after a flagged mistake so you can take it back */
@@ -164,6 +179,12 @@ export class Session {
     this.handId = `${Date.now()}-${g.handNo}`;
     this.order = [];
     this.aided = false;
+    this.peeks = 0;
+    this.quiz = null;
+    this.quizAsked = 0;
+    this.quizCorrect = 0;
+    this.quizDone = false;
+    this.quizAt = 6 + ((this.rng() * 7) | 0);
     this.awaiting = false;
     this.undo = null;
     this.retrying = false;
@@ -218,6 +239,25 @@ export class Session {
 
   private refreshAnalysis(): void {
     this.analysis = this.myTurn ? analyze(this.hand, this.models, this.matchContext()) : null;
+    // with tracking help off, ask about one card-memory question per hand, at the start of one of your turns
+    if (this.tracking === 'none' && !this.quizDone && this.myTurn && this.hand.phase === 'draw' && this.hand.turnsTaken >= this.quizAt) {
+      this.quiz = makeQuiz(this.hand, ME, this.rng);
+      if (this.quiz) this.quizDone = true;
+    }
+  }
+
+  /** Record your answer to the pending quiz. Returns whether it was right. */
+  answerQuiz(choice: number): boolean {
+    if (!this.quiz) return false;
+    const right = choice === this.quiz.answer;
+    this.quizAsked++;
+    if (right) this.quizCorrect++;
+    return right;
+  }
+
+  /** Count a look at the discard pile (peek level). */
+  peek(): void {
+    this.peeks++;
   }
 
   private note(text: string): void {
@@ -231,6 +271,7 @@ export class Session {
     const s = this.hand;
     const an = this.analysis ?? analyze(s, this.models, this.matchContext());
     const v = judge(s, an, a, this.useMatchScore);
+    this.quiz = null;
     this.undo = { hand: s.clone(), events: [...this.events], logLen: this.log.length, wasStock: a.type === 'stock' };
     this.records.push({
       idx: this.records.length,
@@ -395,6 +436,10 @@ export class Session {
       lossByCat,
       totalLoss: total,
       aided: this.aided || undefined,
+      tracking: this.tracking,
+      peeks: this.peeks || undefined,
+      quizAsked: this.quizAsked || undefined,
+      quizCorrect: this.quizCorrect || undefined,
     };
   }
 }

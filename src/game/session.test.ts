@@ -161,6 +161,53 @@ describe('partnership game flow', () => {
     expect(sess.aided).toBe(false);
   });
 
+  it('tracks who threw each pile card, and asks sound memory questions with tracking help off', () => {
+    const rng = makeRng(8);
+    let quizzes = 0;
+    for (let seed = 1; seed <= 25; seed++) {
+      const sess = new Session(HOUSE_RULES, models, 'easy', seed);
+      sess.tracking = 'none';
+      let guard = 0;
+      while (sess.hand.phase !== 'over' && guard++ < 300) {
+        const s = sess.hand;
+        expect(s.discardBy.length).toBe(s.discard.length);
+        if (!sess.myTurn) {
+          sess.stepOpponent();
+          continue;
+        }
+        const q = sess.quiz;
+        if (q) {
+          quizzes++;
+          expect(q.answer).toBeGreaterThanOrEqual(0);
+          expect(q.answer).toBeLessThan(q.options.length);
+          // check the answer against the cards actually seen
+          const pile = new Set(s.discard);
+          const m = q.question.match(/How many (\w+) are in the discard pile/);
+          if (m) {
+            const r = ['aces', 'twos', 'threes', 'fours', 'fives', 'sixes', 'sevens', 'eights', 'nines', 'tens', 'jacks', 'queens', 'kings'].indexOf(m[1]);
+            expect(q.answer).toBe(Math.min(3, s.discard.filter((c) => c % 13 === r).length));
+          }
+          if (q.question.startsWith('Which of these cards has your opponent picked up')) {
+            const known: number[] = [];
+            for (let c = 0; c < 52; c++) if (s.known[1][c]) known.push(c);
+            expect(known.length).toBeGreaterThan(0);
+            expect(pile.size).toBeGreaterThanOrEqual(4);
+          }
+          expect(sess.answerQuiz(q.answer)).toBe(true);
+          expect(sess.quizAsked).toBe(1);
+        }
+        sess.act(sess.analysis!.options[rng() < 0.7 ? 0 : sess.analysis!.options.length - 1].action);
+        expect(sess.quiz).toBeNull();
+      }
+      if (sess.hand.phase === 'over') {
+        const sum = sess.summary();
+        expect(sum.tracking).toBe('none');
+        expect(sum.quizAsked ?? 0).toBeLessThanOrEqual(1);
+      }
+    }
+    expect(quizzes).toBeGreaterThan(5);
+  });
+
   it('reveals the partner result only once enough turns have passed', () => {
     const sess = new Session(HOUSE_RULES, models, 'easy', 99);
     expect(sess.matchContext().partnerDelta === null || sess.partnerTurns === 0).toBe(true);

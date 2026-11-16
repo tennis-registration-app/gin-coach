@@ -62,6 +62,8 @@ export class HandState {
   hands: [Card[], Card[]] = [[], []];
   stock: Card[] = [];
   discard: Card[] = [];
+  /** who threw each card in the discard pile (same order as `discard`); -1 for the upcard */
+  discardBy: number[] = [];
   dealer = 0;
   turn = 0;
   phase: 'draw' | 'discard' | 'over' = 'draw';
@@ -103,6 +105,7 @@ export class HandState {
     s.hands[dealer] = deck.slice(10, 20);
     s.upcard = deck[20];
     s.discard = [deck[20]];
+    s.discardBy = [-1];
     s.stock = deck.slice(21);
     s.turn = nd;
     s.opening = 0;
@@ -127,6 +130,7 @@ export class HandState {
     s.hands = [this.hands[0].slice(), this.hands[1].slice()];
     s.stock = this.stock.slice();
     s.discard = this.discard.slice();
+    s.discardBy = this.discardBy.slice();
     s.dealer = this.dealer;
     s.turn = this.turn;
     s.phase = this.phase;
@@ -194,6 +198,7 @@ export class HandState {
       case 'take': {
         if (this.phase !== 'draw' || this.opening === 2 || !this.discard.length) throw new Error('illegal take');
         const c = this.discard.pop()!;
+        this.discardBy.pop();
         hand.push(c);
         this.known[p][c] = 1;
         this.takes[p]++;
@@ -227,6 +232,7 @@ export class HandState {
         hand.splice(i, 1);
         this.known[p][a.card] = 0;
         this.discard.push(a.card);
+        this.discardBy.push(p);
         this.discards[p].push(a.card);
         this.justTaken = -1;
         this.justDrew = -1;

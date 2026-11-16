@@ -18,7 +18,7 @@ The foundation for everything else.
 - Take back a move, with the first attempt still counted and stock draws reshuffled.
 - Progress separates aided hands from unaided hands.
 
-## Phase 3: card tracking (item 7)
+## Phase 3: card tracking (item 7) — done 16 Nov 2026
 
 - Open pile view, then top card with a counted peek, then no aids with quizzes.
 - Progress shows results by aid level.
@@ -80,6 +80,7 @@ Items collected before and during alpha testing. Order and scope will be set onc
 - Phase 1: four-check explanations on every verdict (Why panel), flagged-mistake text built from the same checks, hint lists near-equal plays, hindsight notes after the hand.
 - Why panel states how the checks line up; a verdict that no check supports is shown as unproven and not counted as a mistake.
 - Phase 2: explore mode (the coach rates a discard when you tap the card, and both draw options at a draw decision), take back a flagged play, aided hands reported separately in Progress.
+- Phase 3: card-tracking help in three levels (open pile, counted check, none with a memory question), with results by level in Progress.
 
 ## Dropped
 

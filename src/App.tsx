@@ -201,6 +201,8 @@ function Play({ session, settings, bump, update }: { session: Session; settings:
   const s = session.hand;
   const g = session.game;
   const [sel, setSel] = useState<Card | null>(null);
+  const [peeking, setPeeking] = useState(false);
+  const [quizPick, setQuizPick] = useState<number | null>(null);
   const saved = useRef('');
   const over = s.phase === 'over';
   const myTurn = session.myTurn;
@@ -223,10 +225,14 @@ function Play({ session, settings, bump, update }: { session: Session; settings:
   });
 
   session.pauseOnMistake = settings.feedback === 'move' && settings.takeBack;
+  session.tracking = settings.tracking;
+  const showPile = !over && (settings.tracking === 'open' || (settings.tracking === 'peek' && peeking));
   const act = (a: Action) => {
     session.useMatchScore = settings.useMatchScore;
     session.act(a);
     setSel(null);
+    setPeeking(false);
+    setQuizPick(null);
     bump();
   };
 
@@ -241,7 +247,7 @@ function Play({ session, settings, bump, update }: { session: Session; settings:
   const bigGin = myTurn && s.phase === 'discard' && dw === 0;
   const oppName = session.opponentName;
   const seen: Card[] = [];
-  if (settings.showSeenCards) for (let c = 0; c < 52; c++) if (s.known[OPP][c]) seen.push(c);
+  if (showPile) for (let c = 0; c < 52; c++) if (s.known[OPP][c]) seen.push(c);
 
   const canSelect = !over && (settings.manualArrange || (myTurn && s.phase === 'discard'));
   const handCard = (c: Card) => (
@@ -332,6 +338,32 @@ function Play({ session, settings, bump, update }: { session: Session; settings:
             <span className="sub">upcard {cardName(s.upcard)}</span>
           </div>
         </div>
+
+        {showPile && (
+          <div className="pile" aria-label="Discard pile, oldest first">
+            <span className="count">Discard pile, oldest first ({s.discard.length})</span>
+            <div className="pilecards">
+              {s.discard.map((c, i) => (
+                <CardView key={c} card={c} small tag={s.discardBy[i] === ME ? 'you' : s.discardBy[i] === OPP ? 'them' : 'upcard'} />
+              ))}
+            </div>
+          </div>
+        )}
+        {!over && settings.tracking === 'peek' && (
+          <p className="peekrow">
+            <button
+              type="button"
+              className="link light"
+              onClick={() => {
+                if (!peeking) session.peek();
+                setPeeking(!peeking);
+              }}
+            >
+              {peeking ? 'Hide the pile' : 'Check the pile'}
+            </button>{' '}
+            <span className="count">checked {session.peeks} time{session.peeks === 1 ? '' : 's'} this hand</span>
+          </p>
+        )}
 
         <div className="me">
           <div className="handrow">
@@ -450,6 +482,35 @@ function Play({ session, settings, bump, update }: { session: Session; settings:
             </button>
           )}
         </section>
+      )}
+
+      {session.quiz && myTurn && (
+        <div className="coach close quiz">
+          <p className="headline">Card check: {session.quiz.question}</p>
+          <div className="quizopts">
+            {session.quiz.options.map((o, i) => (
+              <button
+                key={o}
+                type="button"
+                className={`btn${quizPick !== null && i === session.quiz!.answer ? ' right' : ''}${quizPick === i && i !== session.quiz!.answer ? ' wrong' : ''}`}
+                disabled={quizPick !== null}
+                onClick={() => {
+                  session.answerQuiz(i);
+                  setQuizPick(i);
+                }}
+              >
+                {o}
+              </button>
+            ))}
+          </div>
+          {quizPick !== null ? (
+            <p>
+              {quizPick === session.quiz.answer ? 'Right.' : 'Not quite.'} {session.quiz.explain}
+            </p>
+          ) : (
+            <p className="whyhead">Answer if you like, or just play on to skip it.</p>
+          )}
+        </div>
       )}
 
       {preview && <PreviewCard title={preview.title} v={preview.verdict} knock={preview.knock} />}
@@ -655,6 +716,48 @@ function Progress({ version }: { version: number }) {
           </div>
         </>
       )}
+      {(() => {
+        const levels = [
+          ['open', 'Open pile'],
+          ['peek', 'Check on request'],
+          ['none', 'No help'],
+        ] as const;
+        const rows = levels.map(([k, label]) => ({ k, label, hs: hands.filter((h) => (h.tracking ?? 'open') === k) })).filter((r) => r.hs.length > 0);
+        if (rows.length === 0) return null;
+        return (
+          <>
+            <h2>Card tracking</h2>
+            <p className="note">Your results at each level of card-tracking help. The aim is for points lost per hand to hold steady as the help comes off.</p>
+            <table className="tracking">
+              <thead>
+                <tr>
+                  <th scope="col">Help</th>
+                  <th scope="col">Hands</th>
+                  <th scope="col">Points lost per hand</th>
+                  <th scope="col">Pile checks per hand</th>
+                  <th scope="col">Memory questions right</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => {
+                  const asked = r.hs.reduce((a, h) => a + (h.quizAsked ?? 0), 0);
+                  const right = r.hs.reduce((a, h) => a + (h.quizCorrect ?? 0), 0);
+                  const peeks = r.hs.reduce((a, h) => a + (h.peeks ?? 0), 0);
+                  return (
+                    <tr key={r.k}>
+                      <th scope="row">{r.label}</th>
+                      <td>{r.hs.length}</td>
+                      <td>{total(leakPerHand(r.hs)).toFixed(2)}</td>
+                      <td>{r.k === 'peek' ? (peeks / r.hs.length).toFixed(1) : ''}</td>
+                      <td>{asked ? `${right} of ${asked}` : ''}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </>
+        );
+      })()}
       <p className="note">
         These figures come from the coach’s value model, not from the cards that happened to fall. A move is counted only when the estimated loss is at least 1.5 points and larger than the model’s own margin of error.
       </p>
@@ -698,9 +801,13 @@ function Rules({ settings, update, onClear }: { settings: Settings; update: (s: 
         <input type="checkbox" checked={settings.takeBack} onChange={(e) => update({ ...settings, takeBack: e.target.checked })} />
         Pause after a flagged mistake so I can take the play back
       </label>
-      <label className="check">
-        <input type="checkbox" checked={settings.showSeenCards} onChange={(e) => update({ ...settings, showSeenCards: e.target.checked })} />
-        Show the cards you have seen your opponent pick up
+      <label>
+        Card-tracking help
+        <select value={settings.tracking} onChange={(e) => update({ ...settings, tracking: e.target.value as Settings['tracking'] })}>
+          <option value="open">Open pile: every discard and pickup stays visible</option>
+          <option value="peek">On request: top card only, with a counted check of the pile</option>
+          <option value="none">None: top card only, with an occasional memory question</option>
+        </select>
       </label>
       <label className="check">
         <input type="checkbox" checked={settings.manualArrange} onChange={(e) => update({ ...settings, manualArrange: e.target.checked })} />
