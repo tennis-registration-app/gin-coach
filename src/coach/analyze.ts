@@ -1,6 +1,6 @@
 import { type Card, VALUE, cardName } from '../engine/cards';
 import { type Action, HandState } from '../engine/hand';
-import { deadwood, discardDeadwoods } from '../engine/melds';
+import { arrange, deadwood, discardDeadwoods } from '../engine/melds';
 import { UNSEEN, cardStatus } from '../bots/policy';
 import { compareDiscards, knockCheck, realOuts, type WhySection } from './facts';
 import { type Models } from '../bots/learned';
@@ -276,16 +276,34 @@ function knockSections(s: HandState, st: Uint8Array, knock: OptionEval, wait: Op
   return out;
 }
 
+/** How the pile card would fit your hand: a clean new meld, a swap that breaks another meld, or no meld. */
+export function pileCardFit(hand: readonly Card[], top: Card): { kind: 'new' | 'swap' | 'none'; joins: Card[]; breaks: Card[] } {
+  const d0 = deadwood(hand);
+  const d11 = deadwood([...hand, top]);
+  if (d11 >= d0 + VALUE[top]) return { kind: 'none', joins: [], breaks: [] };
+  const after = arrange([...hand, top]);
+  const joins = after.melds.find((mm) => mm.includes(top)) ?? [];
+  if (d11 <= d0) return { kind: 'new', joins, breaks: [] };
+  // the card melds only by pulling cards out of a meld you already had
+  const before = arrange(hand);
+  const broken = before.melds.find((mm) => mm.some((c) => joins.includes(c))) ?? [];
+  return { kind: 'swap', joins, breaks: broken };
+}
+
 function drawSections(s: HandState, st: Uint8Array, take: OptionEval | undefined, stock: OptionEval): { title: string; lines: string[] }[] {
   const p = s.turn;
   const hand = s.hands[p];
   const top = s.topDiscard;
   const out: { title: string; lines: string[] }[] = [];
+  const d0 = deadwood(hand);
   if (take && top >= 0) {
-    const d0 = deadwood(hand);
-    const melds = deadwood([...hand, top]) < d0 + VALUE[top];
+    const fit = pileCardFit(hand, top);
     const lines = [
-      melds ? `The ${cardName(top)} completes a meld.` : `The ${cardName(top)} does not complete a meld.`,
+      fit.kind === 'new'
+        ? `The ${cardName(top)} gives you a new meld (${cardList(fit.joins)}) without disturbing your other cards.`
+        : fit.kind === 'swap'
+          ? `The ${cardName(top)} makes ${cardList(fit.joins)}, but only by breaking up your ${cardList(fit.breaks)}. You trade one meld for another instead of adding one.`
+          : `The ${cardName(top)} does not complete a meld.`,
       `Your deadwood would go from ${d0} to ${take.deadwoodAfter ?? '?'} after your discard${take.deadwoodAfter !== undefined && take.deadwoodAfter <= s.knockLimit ? ', enough to knock' : ''}.`,
       'Your opponent sees which card you took.',
       `Average result ${pts(take.ev)}.`,
@@ -293,15 +311,21 @@ function drawSections(s: HandState, st: Uint8Array, take: OptionEval | undefined
     out.push({ title: `Taking the ${cardName(top)}`, lines });
   }
   let unseen = 0;
-  let hits = 0;
+  const clean: Card[] = [];
   for (let x = 0; x < 52; x++) {
     if (st[x] !== UNSEEN) continue;
     unseen++;
-    if (deadwood([...hand, x]) < deadwood(hand) + VALUE[x]) hits++;
+    if (deadwood([...hand, x]) <= d0) clean.push(x);
   }
   out.push({
     title: stock.action.type === 'pass' ? 'Passing' : 'Drawing from the stock',
-    lines: [`${hits} of the ${unseen} cards you have not seen would complete a meld.`, 'Your opponent learns nothing about your hand.', `Average result ${pts(stock.ev)}.`],
+    lines: [
+      clean.length
+        ? `${clean.length} of the ${unseen} cards you have not seen would add to your melds without breaking one (${cardList(clean.slice(0, 12))}${clean.length > 12 ? ', and others' : ''}).`
+        : `None of the ${unseen} cards you have not seen would add to your melds outright.`,
+      'Your opponent learns nothing about your hand.',
+      `Average result ${pts(stock.ev)}. That average covers every card you might draw, including low cards that let you shed a high one.`,
+    ],
   });
   return out;
 }
@@ -389,9 +413,11 @@ export function judge(s: HandState, an: Analysis, userAction: Action, useMatch =
     return v;
   }
   if (!flagged) {
-    v.headline = tooClose
-      ? `Close call. The coach slightly prefers "${best.label}" (about ${loss.toFixed(1)} points, within the margin of error of ±${margin.toFixed(1)}).`
-      : `Fine. "${best.label}" rates about the same.`;
+    v.headline = !tooClose
+      ? `Fine. "${best.label}" rates about the same.`
+      : loss <= margin
+        ? `Close call. The coach slightly prefers "${best.label}" (about ${loss.toFixed(1)} points, within the margin of error of ±${margin.toFixed(1)}).`
+        : `Close call. The coach prefers "${best.label}" by about ${loss.toFixed(1)} points (±${margin.toFixed(1)}), which is below its bar of ${threshold.toFixed(1)} for calling ${an.kind === 'draw' ? 'a draw decision' : 'this'} a mistake.`;
     return v;
   }
   v.headline = `Mistake: about ${loss.toFixed(1)} points (±${margin.toFixed(1)}). Better: ${best.label}.`;
@@ -400,15 +426,17 @@ export function judge(s: HandState, an: Analysis, userAction: Action, useMatch =
     v.category = 'pile';
     const top = s.topDiscard;
     const hand = s.hands[p];
-    const melds = deadwood([...hand, top]) < deadwood(hand) + VALUE[top];
+    const fit = pileCardFit(hand, top);
+    const melds = fit.kind !== 'none';
     if (userAction.type === 'take') {
       if (!melds) R.push(`The ${cardName(top)} does not complete a meld. Taking it tells your opponent what you are collecting and gives up a fresh card from the stock.`);
+      else if (fit.kind === 'swap') R.push(`The ${cardName(top)} makes ${cardList(fit.joins)} only by breaking up your ${cardList(fit.breaks)}, so you trade one meld for another, and taking it shows your opponent your holding.`);
       else R.push(`The ${cardName(top)} does join a meld, but the coach rates a stock draw higher here: your hand has enough live cards in the stock, and taking shows your opponent your holding.`);
       R.push(`Expected result: ${pts(chosen.ev)} taking it versus ${pts(best.ev)} drawing from the stock.`);
     } else {
       if (melds) {
         const after = best.deadwoodAfter;
-        R.push(`The ${cardName(top)} completes a meld${after !== undefined ? ` and brings your deadwood down to ${after}` : ''}${after !== undefined && after <= s.knockLimit ? `, enough to knock at this limit of ${s.knockLimit}` : ''}.`);
+        R.push(`The ${cardName(top)} ${fit.kind === 'swap' ? `makes ${cardList(fit.joins)} (breaking up your ${cardList(fit.breaks)})` : 'completes a meld'}${after !== undefined ? ` and brings your deadwood down to ${after}` : ''}${after !== undefined && after <= s.knockLimit ? `, enough to knock at this limit of ${s.knockLimit}` : ''}.`);
       } else {
         R.push(`The ${cardName(top)} does not meld, but it lowers your deadwood enough to matter here${best.deadwoodAfter !== undefined && best.deadwoodAfter <= s.knockLimit ? ` (you could knock with ${best.deadwoodAfter})` : ''}.`);
       }

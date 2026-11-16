@@ -5,7 +5,7 @@ import { loadModels } from '../bots/learned';
 import { heuristicPolicy } from '../bots/policy';
 import type { ModelFile } from './model';
 import modelJson from './model.json';
-import { analyze, judge, realOuts } from './analyze';
+import { analyze, judge, pileCardFit, realOuts } from './analyze';
 import { improveCheck, knockCheck, safetyCheck } from './facts';
 import { fullDeck as allCards } from '../engine/cards';
 import { cardStatus } from '../bots/policy';
@@ -214,6 +214,19 @@ describe('coach', () => {
     }
     expect(flagged).toBeGreaterThan(20);
     console.log('flagged', flagged, 'unproven', unproven);
+  });
+
+  it('tells a clean new meld from a swap that breaks another meld (alpha hand 3)', () => {
+    const hand = P('Ts Th 9s 8h 8d 8c 4h 3h 3c 2c');
+    // the 9h makes 8-9-10 of hearts only by breaking the set of eights
+    const swap = pileCardFit(hand, P('9h')[0]);
+    expect(swap.kind).toBe('swap');
+    expect(swap.joins.sort()).toEqual(P('8h 9h Th').sort());
+    expect(swap.breaks.sort()).toEqual(P('8h 8d 8c').sort());
+    // a third ten is a clean new meld; a king is nothing
+    expect(pileCardFit(hand, P('Td')[0]).kind).toBe('new');
+    expect(pileCardFit(hand, P('8s')[0]).kind).toBe('new');
+    expect(pileCardFit(hand, P('Kd')[0]).kind).toBe('none');
   });
 
   it('game-win table is sane', () => {
