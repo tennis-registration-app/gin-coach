@@ -9,10 +9,14 @@ export interface Settings {
   showSeenCards: boolean;
   /** keep the hand in the order you arrange it instead of sorting it into melds */
   manualArrange: boolean;
+  /** the coach rates each option before you commit */
+  explore: boolean;
+  /** pause after a flagged mistake so the play can be taken back */
+  takeBack: boolean;
   rules: Rules;
 }
 
-export const DEFAULT_SETTINGS: Settings = { level: 'strong', feedback: 'move', useMatchScore: true, showSeenCards: true, manualArrange: false, rules: HOUSE_RULES };
+export const DEFAULT_SETTINGS: Settings = { level: 'strong', feedback: 'move', useMatchScore: true, showSeenCards: true, manualArrange: false, explore: false, takeBack: true, rules: HOUSE_RULES };
 
 const K = { settings: 'gc.settings.v1', hands: 'gc.hands.v1', records: 'gc.records.v1' };
 

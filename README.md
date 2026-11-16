@@ -29,6 +29,8 @@ It rates each option in expected points for the hand, using two small neural net
 
 Every verdict carries a Why panel comparing your play with the coach's on four checks, computed with the same meld search as the numbers: what could still improve each card, whether your opponent could use the discard, what each card costs if your opponent goes out, and which draws would then let you knock or gin.
 
+Two optional aids build on this. With "Coach my options" switched on, the coach rates a discard as soon as you tap the card, and rates both options at a draw decision, before you commit; hands played this way are reported separately as aided. After a flagged mistake the opponent waits so you can take the play back and try again; the first attempt is the one that counts in your statistics, and a taken-back stock draw is reshuffled.
+
 Draw decisions are rated by looking one draw ahead: the value of taking the pile card against the average over every card that could come off the stock.
 
 A move is flagged only when the estimated loss is at least 1.5 points (3 for draw decisions) and larger than the coach's margin of error, which comes from the disagreement among three independently trained copies of each model. Closer calls are reported as close calls. Flagged mistakes are sorted into categories (discard-pile decisions, holding high cards, feeding the opponent, breaking up combinations, knocking too early, knocking too late), and the Progress tab shows points lost per hand in each.

@@ -12,7 +12,7 @@ The foundation for everything else.
 - The hint lists near-equal plays as equal.
 - Done when: the two hands from alpha testing (the A-hearts against 9-clubs discard, and the 3-clubs against 8-clubs discard) produce the explanations worked out by hand, and a test confirms no explanation contradicts the meld search.
 
-## Phase 2: coaching before you commit (items 1 and 4)
+## Phase 2: coaching before you commit (items 1 and 4) — done 16 Nov 2026
 
 - Explore mode: tap a card to see its rating and four checks before discarding; the same on draw decisions. Replaces "Ask the coach first".
 - Take back a move, with the first attempt still counted and stock draws reshuffled.
@@ -79,6 +79,7 @@ Items collected before and during alpha testing. Order and scope will be set onc
 
 - Phase 1: four-check explanations on every verdict (Why panel), flagged-mistake text built from the same checks, hint lists near-equal plays, hindsight notes after the hand.
 - Why panel states how the checks line up; a verdict that no check supports is shown as unproven and not counted as a mistake.
+- Phase 2: explore mode (the coach rates a discard when you tap the card, and both draw options at a draw decision), take back a flagged play, aided hands reported separately in Progress.
 
 ## Dropped
 

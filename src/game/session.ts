@@ -3,7 +3,7 @@ import { type Action, type HandResult, type Rules, HandState } from '../engine/h
 import { arrange } from '../engine/melds';
 import { heuristicPolicy, playHand, simplePolicy, type Policy } from '../bots/policy';
 import { type Models, makeLearned } from '../bots/learned';
-import { type Analysis, type Category, type MatchContext, type Verdict, actionLabel, analyze, judge, nearTies } from '../coach/analyze';
+import { type Analysis, type Category, type MatchContext, type Verdict, actionLabel, analyze, judge } from '../coach/analyze';
 import { hindsight } from '../coach/facts';
 
 export type BotLevel = 'easy' | 'medium' | 'strong' | 'expert';
@@ -42,6 +42,10 @@ export interface DecisionRecord {
   versus?: string;
   /** what the hidden cards showed; only displayed once the hand is over */
   hindsight?: string[];
+  /** you took this play back and tried again (it still counts in your statistics) */
+  retried?: boolean;
+  /** this was a second attempt after taking a play back (not counted in your statistics) */
+  retry?: boolean;
 }
 
 export interface HandSummary {
@@ -57,6 +61,8 @@ export interface HandSummary {
   lossByCat: Partial<Record<Category, number>>;
   /** all estimated losses, flagged or not */
   totalLoss: number;
+  /** the coach rated options before you chose at least once in this hand */
+  aided?: boolean;
 }
 
 export interface RoundResult {
@@ -106,6 +112,13 @@ export class Session {
   round: RoundResult | null = null;
   useMatchScore = true;
   handId = '';
+  /** true once the coach has rated options for you before a choice in this hand */
+  aided = false;
+  /** when set, the opponent waits after a flagged mistake so you can take it back */
+  pauseOnMistake = false;
+  awaiting = false;
+  private undo: { hand: HandState; events: string[]; logLen: number; wasStock: boolean } | null = null;
+  private retrying = false;
   /** your own left-to-right arrangement of your hand (used when arranging by hand) */
   order: Card[] = [];
 
@@ -150,6 +163,10 @@ export class Session {
     this.lastVerdict = null;
     this.handId = `${Date.now()}-${g.handNo}`;
     this.order = [];
+    this.aided = false;
+    this.awaiting = false;
+    this.undo = null;
+    this.retrying = false;
     this.refreshAnalysis();
   }
 
@@ -214,6 +231,7 @@ export class Session {
     const s = this.hand;
     const an = this.analysis ?? analyze(s, this.models, this.matchContext());
     const v = judge(s, an, a, this.useMatchScore);
+    this.undo = { hand: s.clone(), events: [...this.events], logLen: this.log.length, wasStock: a.type === 'stock' };
     this.records.push({
       idx: this.records.length,
       kind: an.kind,
@@ -236,14 +254,61 @@ export class Session {
       why: v.why,
       versus: v.versus,
       hindsight: this.hindsightFor(a, v),
+      retry: this.retrying || undefined,
     });
+    this.retrying = false;
     this.events = [];
     const label = actionLabel(a, s);
     this.log.push(`You: ${label[0].toLowerCase()}${label.slice(1)}.`);
     s.apply(a);
     this.lastVerdict = v;
+    if (s.phase === 'over') this.undo = null; // hidden cards are now showing
+    this.awaiting = this.pauseOnMistake && v.flagged && s.phase !== 'over';
     this.afterMove();
     return v;
+  }
+
+  /** The coach's rating of an action you have not made yet. Marks the hand as aided. */
+  preview(a: Action): Verdict {
+    const an = this.analysis ?? analyze(this.hand, this.models, this.matchContext());
+    this.aided = true;
+    return judge(this.hand, an, a, this.useMatchScore);
+  }
+
+  /** Can your last play be taken back? Only until the opponent has acted, and never once the hand is over. */
+  get canTakeBack(): boolean {
+    return this.undo !== null && this.hand.phase !== 'over';
+  }
+
+  /** Return to the decision you just made. The first attempt stays in your statistics. */
+  takeBack(): void {
+    if (!this.canTakeBack || !this.undo) return;
+    const u = this.undo;
+    this.hand = u.hand;
+    // a stock draw showed you a hidden card: reshuffle the stock so it cannot be used
+    if (u.wasStock) {
+      const st = this.hand.stock;
+      for (let i = st.length - 1; i > 0; i--) {
+        const j = (this.rng() * (i + 1)) | 0;
+        [st[i], st[j]] = [st[j], st[i]];
+      }
+    }
+    this.events = u.events;
+    this.log.length = u.logLen;
+    this.log.push('You took that play back.');
+    const last = this.records[this.records.length - 1];
+    if (last) last.retried = true;
+    this.retrying = true;
+    this.undo = null;
+    this.awaiting = false;
+    this.lastVerdict = null;
+    this.refreshAnalysis();
+  }
+
+  /** Keep the play you made and let the opponent move. */
+  keepPlay(): void {
+    this.awaiting = false;
+    this.undo = null;
   }
 
   private hindsightFor(a: Action, v: Verdict): string[] {
@@ -255,18 +320,11 @@ export class Session {
     return out;
   }
 
-  /** The coach's hint for the current decision: the best play, or the plays it cannot separate. */
-  hint(): string {
-    if (!this.analysis) return '';
-    const t = nearTies(this.analysis).map((o) => o.label);
-    if (t.length === 1) return `Coach would: ${t[0][0].toLowerCase()}${t[0].slice(1)}.`;
-    return `Coach rates these about equal: ${t.slice(0, 5).join('; ')}${t.length > 5 ? '; and others' : ''}.`;
-  }
-
   /** Let the opponent make one action. Returns false if it is not their turn. */
   stepOpponent(): boolean {
     const s = this.hand;
-    if (s.phase === 'over' || s.turn !== OPP) return false;
+    if (s.phase === 'over' || s.turn !== OPP || this.awaiting) return false;
+    this.undo = null;
     const a = this.bot.act(s, this.rng);
     const who = this.opponentName;
     switch (a.type) {
@@ -318,7 +376,8 @@ export class Session {
     const lossByCat: Partial<Record<Category, number>> = {};
     let flagged = 0;
     let total = 0;
-    for (const r of this.records) {
+    const counted = this.records.filter((r) => !r.retry);
+    for (const r of counted) {
       total += r.loss;
       if (r.flagged && r.category) {
         flagged++;
@@ -331,10 +390,11 @@ export class Session {
       level: this.level,
       myPoints: mine.winner < 0 ? 0 : mine.winner === ME ? mine.points : -mine.points,
       kind: mine.kind,
-      decisions: this.records.length,
+      decisions: counted.length,
       flagged,
       lossByCat,
       totalLoss: total,
+      aided: this.aided || undefined,
     };
   }
 }

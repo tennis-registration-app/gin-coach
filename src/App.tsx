@@ -160,18 +160,54 @@ function CoachCard({ rec, showNumbers, reveal }: { rec: DecisionRecord; showNumb
   );
 }
 
-function Play({ session, settings, bump }: { session: Session; settings: Settings; bump: () => void }) {
+/** The coach's rating of a play you have not made yet. */
+function PreviewCard({ title, v, knock }: { title: string; v: ReturnType<Session['preview']>; knock?: ReturnType<Session['preview']> }) {
+  const same = v.chosen === v.best;
+  const rate = (x: ReturnType<Session['preview']>): string => {
+    if (x.chosen === x.best) return x.ties.length ? `as good as anything here (about equal: ${x.ties.slice(0, 3).join('; ')})` : 'the coach\u2019s best play';
+    if (x.headline.startsWith('Unproven')) return `rated about ${x.loss.toFixed(1)} points below "${x.best.label}", but no check supports that; unproven`;
+    if (x.flagged) return `gives up about ${x.loss.toFixed(1)} points (±${x.margin.toFixed(1)}). Better: ${x.best.label}`;
+    return x.loss > 0.3 ? `close to best (about ${x.loss.toFixed(1)} points behind "${x.best.label}", within the margin of error)` : `about the same as "${x.best.label}"`;
+  };
+  const tone = v.flagged ? 'bad' : same ? 'good' : 'close';
+  return (
+    <div className={`coach ${tone}`} aria-live="polite">
+      <p className="headline">
+        {title}: {rate(v)}.
+      </p>
+      {knock && (
+        <p>
+          Knocking with this discard instead: {rate(knock)}. Expected {signed(knock.chosen.ev)} against {signed(v.chosen.ev)} for playing on.
+        </p>
+      )}
+      {v.why.length > 0 && (
+        <div className="why open">
+          <p className="whyhead">Compared with: {lowerFirst(v.versus)}</p>
+          {v.why.map((sec) => (
+            <section key={sec.title}>
+              <h3>{sec.title}</h3>
+              {sec.lines.map((l, i) => (
+                <p key={i}>{l}</p>
+              ))}
+            </section>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Play({ session, settings, bump, update }: { session: Session; settings: Settings; bump: () => void; update: (s: Settings) => void }) {
   const s = session.hand;
   const g = session.game;
   const [sel, setSel] = useState<Card | null>(null);
-  const [hint, setHint] = useState(false);
   const saved = useRef('');
   const over = s.phase === 'over';
   const myTurn = session.myTurn;
 
   // opponent moves on a short delay so you can follow them
   useEffect(() => {
-    if (over || myTurn) return;
+    if (over || myTurn || session.awaiting) return;
     const t = setTimeout(() => {
       session.stepOpponent();
       bump();
@@ -186,11 +222,11 @@ function Play({ session, settings, bump }: { session: Session; settings: Setting
     }
   });
 
+  session.pauseOnMistake = settings.feedback === 'move' && settings.takeBack;
   const act = (a: Action) => {
     session.useMatchScore = settings.useMatchScore;
     session.act(a);
     setSel(null);
-    setHint(false);
     bump();
   };
 
@@ -221,6 +257,7 @@ function Play({ session, settings, bump }: { session: Session; settings: Setting
 
   let prompt = '';
   if (over) prompt = '';
+  else if (session.awaiting) prompt = '';
   else if (!myTurn) prompt = `${oppName} is thinking…`;
   else if (s.phase === 'draw') prompt = s.opening <= 1 ? `Take the upcard or pass?` : s.opening === 2 ? 'Both passed. Draw from the stock.' : 'Draw from the stock or take the top discard.';
   else prompt = sel === null ? 'Tap a card to discard.' : '';
@@ -230,7 +267,18 @@ function Play({ session, settings, bump }: { session: Session; settings: Setting
     ? `${g.partner} v ${session.partnerOpponentName}: ${describeResult(session.partnerResult, session.partnerResult.winner === 0 ? g.partner : session.partnerOpponentName, session.partnerResult.winner === 0 ? session.partnerOpponentName : g.partner)}`
     : `${g.partner} v ${session.partnerOpponentName}: still playing`;
 
-  const hintText = hint && session.analysis ? session.hint() : null;
+  // explore mode: the coach rates an option before you commit
+  const exploring = settings.explore && settings.feedback !== 'off' && myTurn && !session.analysis?.forced;
+  let preview: { title: string; verdict: ReturnType<Session['preview']>; knock?: ReturnType<Session['preview']> } | null = null;
+  if (exploring && s.phase === 'discard' && sel !== null && canDiscardSel) {
+    session.useMatchScore = settings.useMatchScore;
+    const verdict = session.preview({ type: 'discard', card: sel, knock: false });
+    const knock = selDw !== null && selDw > 0 && selDw <= s.knockLimit ? session.preview({ type: 'discard', card: sel, knock: true }) : undefined;
+    preview = { title: `Discarding the ${cardName(sel)}`, verdict, knock };
+  } else if (exploring && s.phase === 'draw' && s.opening !== 2 && top >= 0) {
+    session.useMatchScore = settings.useMatchScore;
+    preview = { title: `Taking the ${cardName(top)}`, verdict: session.preview({ type: 'take' }) };
+  }
 
   return (
     <div className="play">
@@ -353,12 +401,12 @@ function Play({ session, settings, bump }: { session: Session; settings: Setting
               Sort my hand
             </button>
           )}
-          {myTurn && settings.feedback !== 'off' && !hint && (
-            <button type="button" className="link light" onClick={() => setHint(true)}>
-              Ask the coach first
+          {myTurn && settings.feedback !== 'off' && (
+            <button type="button" className="link light" aria-pressed={settings.explore} onClick={() => update({ ...settings, explore: !settings.explore })}>
+              {settings.explore ? 'Coach my options: on' : 'Coach my options: off'}
             </button>
           )}
-          {hintText && <span className="prompt hint">{hintText}</span>}
+          {exploring && s.phase === 'discard' && sel === null && <span className="prompt hint">Tap any card to see how the coach rates discarding it.</span>}
         </div>
       </section>
 
@@ -404,7 +452,35 @@ function Play({ session, settings, bump }: { session: Session; settings: Setting
         </section>
       )}
 
-      {showCoach && <CoachCard key={`${session.handId}-${lastRec.idx}`} rec={lastRec} reveal={over} />}
+      {preview && <PreviewCard title={preview.title} v={preview.verdict} knock={preview.knock} />}
+
+      {showCoach && !preview && <CoachCard key={`${session.handId}-${lastRec.idx}`} rec={lastRec} reveal={over} />}
+      {session.awaiting && (
+        <div className="takeback">
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => {
+              session.takeBack();
+              setSel(null);
+              bump();
+            }}
+          >
+            Take it back and try again
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => {
+              session.keepPlay();
+              bump();
+            }}
+          >
+            Keep my play
+          </button>
+          <span className="note">Your first play still counts in Progress.</span>
+        </div>
+      )}
 
       <details className="log">
         <summary>Hand log</summary>
@@ -477,7 +553,9 @@ function Review({ session }: { session: Session }) {
           <span className="name">Your hand</span>
           <Spread cards={rec.myHand} />
         </div>
-        <p className="replay-meta">You chose: {lowerFirst(rec.chosen)}.</p>
+        <p className="replay-meta">
+          You chose: {lowerFirst(rec.chosen)}.{rec.retried ? ' You then took it back.' : ''}{rec.retry ? ' (Second attempt, not counted in Progress.)' : ''}
+        </p>
       </section>
       <CoachCard key={`${handRec.id}-${i}`} rec={rec} showNumbers reveal={!inProgress} />
       <div className="row">
@@ -502,7 +580,11 @@ function leakPerHand(hands: HandSummary[]): Record<Category, number> {
 }
 
 function Progress({ version }: { version: number }) {
-  const hands = useMemo(() => loadHands(), [version]); // eslint-disable-line
+  const allHands = useMemo(() => loadHands(), [version]); // eslint-disable-line
+  const aidedHands = allHands.filter((h) => h.aided);
+  const unaided = allHands.filter((h) => !h.aided);
+  // leak figures describe unaided play; fall back to aided hands only if that is all there is
+  const hands = unaided.length ? unaided : allHands;
   if (hands.length === 0) return <p className="empty">No hands yet. After a few dozen hands this page shows which kinds of mistakes cost you the most points.</p>;
   const recent = hands.slice(-25);
   const earlier = hands.slice(0, -25);
@@ -523,7 +605,7 @@ function Progress({ version }: { version: number }) {
     <div className="progress">
       <div className="stats">
         <div>
-          <span className="big">{hands.length}</span> hands played
+          <span className="big">{hands.length}</span> {unaided.length ? 'unaided hands' : 'hands'} played
         </div>
         <div>
           <span className="big">{total(all).toFixed(1)}</span> points lost to flagged mistakes per hand
@@ -532,6 +614,12 @@ function Progress({ version }: { version: number }) {
           <span className="big">{signed(avgPts)}</span> points per hand ({wins} won, {losses} lost)
         </div>
       </div>
+      {aidedHands.length > 0 && unaided.length > 0 && (
+        <p className="note">
+          Plus {aidedHands.length} hand{aidedHands.length === 1 ? '' : 's'} played with the coach rating your options first ({total(leakPerHand(aidedHands)).toFixed(2)} points lost per hand). Those are left out of the figures on this page.
+        </p>
+      )}
+      {aidedHands.length > 0 && unaided.length === 0 && <p className="note">All of these hands were played with the coach rating your options first, so the figures understate your unaided mistakes.</p>}
       <h2>Where the points go</h2>
       <p className="note">Estimated points given up per hand, by kind of mistake. Dark bar: all hands. Light bar: your last {recent.length}.</p>
       <table className="leaks">
@@ -601,6 +689,14 @@ function Rules({ settings, update, onClear }: { settings: Settings; update: (s: 
       <label className="check">
         <input type="checkbox" checked={settings.useMatchScore} onChange={(e) => update({ ...settings, useMatchScore: e.target.checked })} />
         Let the game score and your partner’s result change the advice
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={settings.explore} onChange={(e) => update({ ...settings, explore: e.target.checked })} />
+        Coach my options before I commit (hands played this way are counted separately as aided)
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={settings.takeBack} onChange={(e) => update({ ...settings, takeBack: e.target.checked })} />
+        Pause after a flagged mistake so I can take the play back
       </label>
       <label className="check">
         <input type="checkbox" checked={settings.showSeenCards} onChange={(e) => update({ ...settings, showSeenCards: e.target.checked })} />
@@ -686,7 +782,7 @@ export default function App() {
         ))}
       </nav>
       <main>
-        {tab === 'play' && <Play session={session} settings={settings} bump={bump} />}
+        {tab === 'play' && <Play session={session} settings={settings} bump={bump} update={update} />}
         {tab === 'review' && <Review session={session} />}
         {tab === 'progress' && <Progress version={version + (tab === 'progress' ? 1 : 0)} />}
         {tab === 'rules' && (

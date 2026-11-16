@@ -27,7 +27,7 @@ describe('partnership game flow', () => {
           expect(g.rounds.reduce((a, x) => a + x.them, 0)).toBe(g.them);
           expect(r.usDelta + r.themDelta).toBe(r.mine.points + r.partner.points);
           const sum = sess.summary();
-          expect(sum.decisions).toBe(sess.records.length);
+          expect(sum.decisions).toBe(sess.records.filter((r) => !r.retry).length);
           if (g.over) {
             expect(Math.max(g.us, g.them)).toBeGreaterThanOrEqual(HOUSE_RULES.target);
             games++;
@@ -92,6 +92,73 @@ describe('partnership game flow', () => {
         expect(sess.myOrder()).toEqual(before.slice(1));
       }
     }
+  });
+
+  it('lets you take back a flagged play, keeps the first attempt in the statistics, and reshuffles after a stock draw', () => {
+    const rng = makeRng(3);
+    let tookBackDiscard = 0;
+    let tookBackStock = 0;
+    for (let seed = 1; seed < 40 && (tookBackDiscard < 3 || tookBackStock < 1); seed++) {
+      const sess = new Session(HOUSE_RULES, models, 'easy', seed);
+      sess.pauseOnMistake = true;
+      let guard = 0;
+      while (sess.hand.phase !== 'over' && guard++ < 300) {
+        if (!sess.myTurn) {
+          sess.stepOpponent();
+          continue;
+        }
+        const s = sess.hand;
+        const an = sess.analysis!;
+        // play badly on purpose: the worst-rated option
+        const worst = an.options[an.options.length - 1].action;
+        const before = { mine: [...s.hands[ME]].sort(), pile: [...s.discard], stock: [...s.stock], records: sess.records.length };
+        const v = sess.act(worst);
+        if (sess.hand.phase === 'over') break;
+        if (!v.flagged) continue;
+        expect(sess.awaiting).toBe(true);
+        expect(sess.stepOpponent()).toBe(false); // the opponent waits
+        expect(sess.canTakeBack).toBe(true);
+        sess.takeBack();
+        const h = sess.hand;
+        expect([...h.hands[ME]].sort()).toEqual(before.mine);
+        expect(h.discard).toEqual(before.pile);
+        expect([...h.stock].sort()).toEqual([...before.stock].sort());
+        expect(sess.records.length).toBe(before.records + 1);
+        expect(sess.records[before.records].retried).toBe(true);
+        expect(sess.myTurn).toBe(true);
+        if (worst.type === 'stock') {
+          tookBackStock++;
+          if (before.stock.length > 6) expect(h.stock).not.toEqual(before.stock); // reshuffled
+        } else tookBackDiscard++;
+        // second attempt: follow the coach; it is recorded as a retry and not counted
+        const again = sess.act(sess.analysis!.options[0].action);
+        expect(again.flagged).toBe(false);
+        expect(sess.records[sess.records.length - 1].retry).toBe(true);
+        expect(sess.awaiting).toBe(false);
+        void rng;
+      }
+      if (sess.hand.phase === 'over') {
+        const sum = sess.summary();
+        const counted = sess.records.filter((r) => !r.retry);
+        expect(sum.decisions).toBe(counted.length);
+        expect(sum.flagged).toBe(counted.filter((r) => r.flagged && r.category).length);
+      }
+    }
+    expect(tookBackDiscard).toBeGreaterThanOrEqual(3);
+  });
+
+  it('marks a hand as aided once the coach has rated an option in advance', () => {
+    const sess = new Session(HOUSE_RULES, models, 'easy', 11);
+    expect(sess.aided).toBe(false);
+    while (!sess.myTurn) sess.stepOpponent();
+    const a = sess.analysis!.options[0].action;
+    const v = sess.preview(a);
+    expect(v.loss).toBe(0);
+    expect(sess.aided).toBe(true);
+    // previewing does not change the hand
+    expect(sess.records.length).toBe(0);
+    sess.startHand();
+    expect(sess.aided).toBe(false);
   });
 
   it('reveals the partner result only once enough turns have passed', () => {
