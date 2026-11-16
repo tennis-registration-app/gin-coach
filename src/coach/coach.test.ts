@@ -183,6 +183,39 @@ describe('coach', () => {
     expect(withWhy / total).toBeGreaterThan(0.95);
   });
 
+  it('never flags a discard as a mistake when no check supports the coach', () => {
+    const rng = makeRng(77);
+    let flagged = 0;
+    let unproven = 0;
+    for (let t = 0; t < 60; t++) {
+      const s = HandState.deal(HOUSE_RULES, t % 2, rng);
+      while (s.phase !== 'over') {
+        const an = analyze(s, m);
+        // a deliberately mixed player: sometimes random legal discards
+        let a = heuristicPolicy.act(s, rng);
+        if (s.phase === 'discard' && a.type === 'discard' && !a.knock && rng() < 0.4) {
+          const legal = s.hands[s.turn].filter((c) => c !== s.justTaken);
+          a = { type: 'discard', card: legal[(rng() * legal.length) | 0], knock: false };
+        }
+        if (!an.forced) {
+          const v = judge(s, an, a);
+          if (v.headline.startsWith('Unproven')) {
+            unproven++;
+            expect(v.flagged).toBe(false);
+          }
+          if (v.flagged && a.type === 'discard' && !a.knock && v.best.action.type === 'discard' && !v.best.action.knock) {
+            flagged++;
+            const tally = v.why.find((w) => w.title === 'How the checks line up')!;
+            expect(tally.lines.join(' ')).toMatch(/Favouring the /);
+          }
+        }
+        s.apply(a);
+      }
+    }
+    expect(flagged).toBeGreaterThan(20);
+    console.log('flagged', flagged, 'unproven', unproven);
+  });
+
   it('game-win table is sane', () => {
     const T = HOUSE_RULES.target;
     expect(gameWinChance(0, 0, T)).toBeCloseTo(0.5, 1);

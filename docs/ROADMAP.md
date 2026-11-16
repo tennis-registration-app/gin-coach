@@ -78,6 +78,7 @@ Items collected before and during alpha testing. Order and scope will be set onc
 - Undercut bonus 20 (was 10) and game to 150 (was 200); coach retrained on the new rules.
 
 - Phase 1: four-check explanations on every verdict (Why panel), flagged-mistake text built from the same checks, hint lists near-equal plays, hindsight notes after the hand.
+- Why panel states how the checks line up; a verdict that no check supports is shown as unproven and not counted as a mistake.
 
 ## Dropped
 

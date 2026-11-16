@@ -331,6 +331,7 @@ export function judge(s: HandState, an: Analysis, userAction: Action, useMatch =
   const threshold = an.kind === 'draw' ? FLAG_THRESHOLD * 2 : FLAG_THRESHOLD;
   const same = chosen === best;
   let flagged = !same && loss >= threshold && loss > margin;
+  let unsupported = false;
   if (usedMatchScore && !same && (equityLoss ?? 0) >= 1.5) flagged = true;
   const tooClose = !same && !flagged && loss > 0.3;
   const ties = nearTies(an)
@@ -355,7 +356,32 @@ export function judge(s: HandState, an: Analysis, userAction: Action, useMatch =
     } else if (chosen.action.type === 'discard' && other.action.type === 'discard' && chosen.action.card !== other.action.card) {
       sections = compareDiscards(s, p, st, chosen.action.card, other.action.card);
       v.why = sections.map(({ title, lines }) => ({ title, lines }));
+      // say plainly how the checks line up, so the panel never appears to argue against its own verdict
+      const short = (t: string) => t[0].toLowerCase() + t.slice(1);
+      const forYou = sections.filter((x) => x.favours === 1 && x.weight > 0).map((x) => short(x.title));
+      const forOther = sections.filter((x) => x.favours === -1 && x.weight > 0).map((x) => short(x.title));
+      const yours = cardName(chosen.action.card);
+      const theirs = cardName(other.action.card);
+      const tally: string[] = [];
+      if (forYou.length) tally.push(`Favouring your ${yours}: ${forYou.join('; ')}.`);
+      if (forOther.length) tally.push(`Favouring the ${theirs}: ${forOther.join('; ')}.`);
+      if (!forYou.length && !forOther.length) tally.push('The four checks do not separate these two plays.');
+      if (!same && forOther.length === 0) {
+        unsupported = true;
+        tally.push(`None of the four checks supports the coach's preference for the ${theirs}. It comes only from the value model's overall estimate, which may be picking up something the checks do not measure or may simply be off here. Treat it as unproven.`);
+      } else if (!same && forYou.length > 0) {
+        tally.push(`The coach's model weighs these together and comes down on the side of the ${theirs}.`);
+      }
+      v.why.unshift({ title: 'How the checks line up', lines: tally });
     }
+  }
+  if (unsupported && flagged) {
+    // do not call it a mistake when the explanation cannot back it up
+    flagged = false;
+    v.flagged = false;
+    v.tooClose = true;
+    v.headline = `Unproven. The coach's model prefers "${best.label}" by about ${loss.toFixed(1)} points (±${margin.toFixed(1)}), but none of the four checks supports it. Not counted as a mistake.`;
+    return v;
   }
 
   if (same) {
