@@ -229,6 +229,12 @@ describe('coach', () => {
     expect(pileCardFit(hand, P('Kd')[0]).kind).toBe('none');
   });
 
+  it('explains that a low card can be knock deadwood at a low limit (alpha hand 4)', () => {
+    const s = stateWith('Jc Js 9s 8s 8d 6h 6d 3h 4h 4d', '2s', '5d');
+    const lines = judge(s, analyze(s, m), { type: 'discard', card: P('2s')[0], knock: false }).why.flatMap((w) => w.lines).join(' ');
+    expect(lines).toMatch(/knock limit of 5, the 2♠︎ could stay in your hand/);
+  });
+
   it('game-win table is sane', () => {
     const T = HOUSE_RULES.target;
     expect(gameWinChance(0, 0, T)).toBeCloseTo(0.5, 1);

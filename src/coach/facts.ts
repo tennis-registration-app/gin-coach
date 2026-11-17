@@ -208,6 +208,15 @@ function knockLine(c: Card, k: KnockCheck, limit: number): string {
   return t;
 }
 
+/** At a low knock limit, a low loose card can be part of the deadwood you knock with; a high one cannot. */
+function limitLine(a: Card, b: Card, limit: number): string[] {
+  if (limit <= 0 || limit >= 10) return [];
+  const lo = VALUE[a] < VALUE[b] ? a : b;
+  const hi = lo === a ? b : a;
+  if (VALUE[lo] > limit || VALUE[hi] <= limit) return [];
+  return [`At this knock limit of ${limit}, the ${cardName(lo)} could stay in your hand as part of the deadwood you knock with. The ${cardName(hi)} never can: it has to be melded or thrown before you can knock.`];
+}
+
 /** The four checks comparing discarding `a` with discarding `b` from the same 11-card hand. Biggest difference first. */
 export function compareDiscards(s: HandState, p: number, st: Uint8Array, a: Card, b: Card): WhySection[] {
   const hand = s.hands[p];
@@ -239,6 +248,7 @@ export function compareDiscards(s: HandState, p: number, st: Uint8Array, a: Card
         VALUE[a] === VALUE[b]
           ? `Both cards count ${VALUE[a]} against you.`
           : `The ${cardName(a)} counts ${VALUE[a]} against you while you hold it; the ${cardName(b)} counts ${VALUE[b]}.`,
+        ...limitLine(a, b, s.knockLimit),
       ],
       weight: Math.abs(VALUE[a] - VALUE[b]),
       favours: VALUE[a] > VALUE[b] ? 1 : VALUE[a] < VALUE[b] ? -1 : 0,
