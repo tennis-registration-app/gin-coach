@@ -235,6 +235,18 @@ describe('coach', () => {
     expect(lines).toMatch(/knock limit of 5, the 2♠︎ could stay in your hand/);
   });
 
+  it('says when an out would make a meld anyway (alpha hand 5)', () => {
+    const s = stateWith('Td Jd Kd 8h 8c 6h 4s 4c 3h Ah', 'Kc', '3d');
+    const st = cardStatus(s, s.turn).slice();
+    const kd = P('Kd')[0];
+    const f = improveCheck(s, s.turn, s.hands[s.turn], kd, P('Kc')[0], st);
+    expect(f.outs).toEqual([P('Qd')[0]]);
+    expect(f.riding.map((r) => r.card)).toEqual([P('Qd')[0]]);
+    expect(f.riding[0].meld.sort()).toEqual(P('Td Jd Qd').sort());
+    const lines = judge(s, analyze(s, m), { type: 'discard', card: P('Kc')[0], knock: false }).why.flatMap((w) => w.lines).join(' ');
+    expect(lines).toMatch(/would make 10♦︎, J♦︎ and Q♦︎ even without the K♦︎/);
+  });
+
   it('game-win table is sane', () => {
     const T = HOUSE_RULES.target;
     expect(gameWinChance(0, 0, T)).toBeCloseTo(0.5, 1);

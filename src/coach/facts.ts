@@ -1,6 +1,6 @@
 import { type Card, VALUE, cardName } from '../engine/cards';
 import { HandState } from '../engine/hand';
-import { deadwood, discardDeadwoods } from '../engine/melds';
+import { arrange, deadwood, discardDeadwoods } from '../engine/melds';
 import { DEAD, MINE, OPP, UNSEEN } from '../bots/policy';
 import { holdWeights } from './mc';
 
@@ -38,6 +38,8 @@ export interface ImproveCheck {
   inMeld: boolean;
   /** a partner card in hand that is committed to, or also wanted by, another combination */
   shared: { partner: Card; locked: boolean; alsoWants: Card[] } | null;
+  /** outs that would make a meld even without this card: keeping it only lets it join that meld */
+  riding: { card: Card; meld: Card[] }[];
 }
 
 /** Check 1: what can still improve card `c` if you keep it (and throw `other` instead). */
@@ -86,7 +88,16 @@ export function improveCheck(s: HandState, p: number, hand: readonly Card[], c: 
       }
     }
   }
-  return { outs, suspect, gone, inMeld, shared };
+  // outs that would complete a meld from your other cards anyway
+  const riding: { card: Card; meld: Card[] }[] = [];
+  for (const x of outs) {
+    if (deadwood([...without, x]) < deadwood(without) + VALUE[x]) {
+      const a = arrange([...without, x]);
+      riding.push({ card: x, meld: a.melds.find((mm) => mm.includes(x)) ?? [] });
+    }
+  }
+  if (riding.length) shared = null; // the riding note says it more precisely
+  return { outs, suspect, gone, inMeld, shared, riding };
 }
 
 export interface SafetyCheck {
@@ -173,6 +184,9 @@ function improveLine(c: Card, f: ImproveCheck): string {
   const opp = f.gone.filter((g) => g.where === 'opponent').map((g) => g.card);
   if (pile.length) t += ` Already in the pile: ${list(pile)}.`;
   if (opp.length) t += ` In your opponent's hand: ${list(opp)}.`;
+  for (const r of f.riding) {
+    t += ` The ${cardName(r.card)} would make ${list(r.meld)} even without the ${name}; keeping the ${name} only lets it join that meld (saving its ${VALUE[c]} points) if the ${cardName(r.card)} arrives.`;
+  }
   if (f.shared?.locked) t += ` Its partner, the ${cardName(f.shared.partner)}, is already committed to a better meld.`;
   else if (f.shared) t += ` Its partner, the ${cardName(f.shared.partner)}, also works with other cards (${list(f.shared.alsoWants)}), so only one of those chances can pay off.`;
   return t;
@@ -226,8 +240,9 @@ export function compareDiscards(s: HandState, p: number, st: Uint8Array, a: Card
   const sb = safetyCheck(s, p, b, st);
   const ka = knockCheck(hand.filter((x) => x !== a), st, s.knockLimit);
   const kb = knockCheck(hand.filter((x) => x !== b), st, s.knockLimit);
-  const outsA = ia.inMeld ? 6 : ia.outs.length - 0.5 * ia.suspect.length;
-  const outsB = ib.inMeld ? 6 : ib.outs.length - 0.5 * ib.suspect.length;
+  // an out that would make a meld anyway is worth much less to the card you keep
+  const outsA = ia.inMeld ? 6 : ia.outs.length - 0.5 * ia.suspect.length - 0.6 * ia.riding.length;
+  const outsB = ib.inMeld ? 6 : ib.outs.length - 0.5 * ib.suspect.length - 0.6 * ib.riding.length;
   const sections: WhySection[] = [
     {
       title: 'What could still improve each card',
