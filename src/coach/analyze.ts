@@ -321,8 +321,8 @@ function drawSections(s: HandState, st: Uint8Array, take: OptionEval | undefined
     title: stock.action.type === 'pass' ? 'Passing' : 'Drawing from the stock',
     lines: [
       clean.length
-        ? `${clean.length} of the ${unseen} cards you have not seen would add to your melds without breaking one (${cardList(clean.slice(0, 12))}${clean.length > 12 ? ', and others' : ''}).`
-        : `None of the ${unseen} cards you have not seen would add to your melds outright.`,
+        ? `Of the ${unseen} cards you had not seen, ${clean.length} would have added a meld to the ten cards you held before drawing, without breaking one: ${cardList(clean.slice(0, 12))}${clean.length > 12 ? ', and others' : ''}.`
+        : `None of the ${unseen} cards you had not seen would have added a meld to the ten cards you held before drawing.`,
       'Your opponent learns nothing about your hand.',
       `Average result ${pts(stock.ev)}. That average covers every card you might draw, including low cards that let you shed a high one.`,
     ],
