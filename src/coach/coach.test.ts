@@ -247,6 +247,14 @@ describe('coach', () => {
     expect(lines).toMatch(/would make 10♦︎, J♦︎ and Q♦︎ even without the K♦︎/);
   });
 
+  it('calls a near tie a tie instead of naming a side (alpha hand 6)', () => {
+    const s = stateWith('Qs Qd 8s 8h 7h 7d 6s 5d 5c Ah', 'Qh', '3h');
+    const v = judge(s, analyze(s, m), { type: 'discard', card: P('6s')[0], knock: false });
+    const tally = v.why.find((w) => w.title === 'How the checks line up')!.lines.join(' ');
+    if (v.loss <= Math.max(1, v.margin)) expect(tally).toMatch(/about equal/);
+    expect(tally).not.toMatch(/comes down on the side/);
+  });
+
   it('game-win table is sane', () => {
     const T = HOUSE_RULES.target;
     expect(gameWinChance(0, 0, T)).toBeCloseTo(0.5, 1);

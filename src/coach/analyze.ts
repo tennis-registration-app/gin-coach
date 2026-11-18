@@ -394,7 +394,9 @@ export function judge(s: HandState, an: Analysis, userAction: Action, useMatch =
         unsupported = true;
         tally.push(`None of the four checks supports the coach's preference for the ${theirs}. It comes only from the value model's overall estimate, which may be picking up something the checks do not measure or may simply be off here. Treat it as unproven.`);
       } else if (!same && forYou.length > 0) {
-        tally.push(`The coach's model weighs these together and comes down on the side of the ${theirs}.`);
+        const { diff: d, margin: mg } = diffStats(other, chosen);
+        if (d <= Math.max(1, mg)) tally.push(`Weighing these together, the coach rates the two discards about equal: a difference of ${Math.max(0, d).toFixed(1)} points, inside its margin of error of ±${mg.toFixed(1)}. Either is fine.`);
+        else tally.push(`The coach's model weighs these together and comes down on the side of the ${theirs}.`);
       }
       v.why.unshift({ title: 'How the checks line up', lines: tally });
     }
