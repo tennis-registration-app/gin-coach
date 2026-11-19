@@ -168,6 +168,12 @@ export interface WhySection {
   weight: number;
   /** which play this check favours: 1 = the first card named, -1 = the second, 0 = neither */
   favours: number;
+  /** what this check is about, for the key point ("safety") */
+  area: string;
+  /** one clause stating the difference this check found */
+  key: string;
+  /** one clause for when this check does not separate the two cards */
+  even: string;
 }
 
 function improveLine(c: Card, f: ImproveCheck): string {
@@ -231,6 +237,97 @@ function limitLine(a: Card, b: Card, limit: number): string[] {
   return [`At this knock limit of ${limit}, the ${cardName(lo)} could stay in your hand as part of the deadwood you knock with. The ${cardName(hi)} never can: it has to be melded or thrown before you can knock.`];
 }
 
+function improveKey(a: Card, ia: ImproveCheck, b: Card, ib: ImproveCheck, oa: number, ob: number): string {
+  const [keep, kf, toss, tf] = oa >= ob ? [a, ia, b, ib] : [b, ib, a, ia];
+  if (kf.inMeld) return `the ${cardName(keep)} is part of a meld and the ${cardName(toss)} is not`;
+  const ride = kf.riding.length ? ` (though the ${cardName(kf.riding[0].card)} would make a meld without it)` : '';
+  return `the ${cardName(keep)} has ${plural(kf.outs.length, 'live card')} that would meld it${ride}, the ${cardName(toss)} ${tf.outs.length === 0 ? 'none' : tf.outs.length}`;
+}
+
+function safetyKey(a: Card, sa: SafetyCheck, b: Card, sb: SafetyCheck): string {
+  const [risky, rf, safe, sf] = sa.score >= sb.score ? [a, sa, b, sb] : [b, sb, a, sa];
+  if (sf.usable.length === 0) return `the ${cardName(safe)} cannot help your opponent at all, while the ${cardName(risky)} could complete a meld for them ${rf.usable.length === 1 ? 'one way' : `${rf.usable.length} ways`}`;
+  if (rf.withKnown.length && !sf.withKnown.length) return `the ${cardName(risky)} works with a card your opponent is known to hold; the ${cardName(safe)} does not`;
+  return `the ${cardName(risky)} could complete a meld for your opponent ${rf.usable.length === 1 ? 'one way' : `${rf.usable.length} ways`}, the ${cardName(safe)} ${sf.usable.length === 1 ? 'one way' : `${sf.usable.length} ways`}`;
+}
+
+function costKey(a: Card, b: Card, limit: number): string {
+  const [hi, lo] = VALUE[a] >= VALUE[b] ? [a, b] : [b, a];
+  const t = `the ${cardName(hi)} costs ${VALUE[hi]} if your opponent goes out, the ${cardName(lo)} only ${VALUE[lo]}`;
+  return limit > 0 && limit < 10 && VALUE[lo] <= limit && VALUE[hi] > limit ? `${t}, and at a knock limit of ${limit} the ${cardName(lo)} can be part of your knock while the ${cardName(hi)} cannot` : t;
+}
+
+function knockKey(a: Card, ka: KnockCheck, b: Card, kb: KnockCheck, limit: number): string {
+  const word = limit === 0 ? 'go gin' : 'knock';
+  const na = ka.knockDraws.length + ka.ginDraws.length;
+  const nb = kb.knockDraws.length + kb.ginDraws.length;
+  const [better, kbest, worse, kworse] = na >= nb ? [a, ka, b, kb] : [b, kb, a, ka];
+  return `throwing the ${cardName(better)} leaves ${plural(kbest.knockDraws.length, 'card')} that would let you ${word} next turn, against ${kworse.knockDraws.length} after throwing the ${cardName(worse)}`;
+}
+
+/** One-sentence summary: what the two plays share, and the check that separates them. */
+export function keyPoint(sections: WhySection[]): string {
+  const lead = sections.filter((x) => x.favours !== 0 && x.weight > 0).sort((x, y) => y.weight - x.weight)[0];
+  const evens = sections.filter((x) => x.weight === 0).map((x) => x.even);
+  const cap = (t: string) => t[0].toUpperCase() + t.slice(1);
+  const join = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+  if (!lead) return evens.length ? `${cap(join(evens))}: none of the checks separates these two plays.` : '';
+  const others = sections.filter((x) => x !== lead && x.favours !== 0 && x.weight > 0);
+  let t = evens.length ? `${cap(join(evens))}, so the main difference is ${lead.area}: ${lead.key}.` : `The main difference is ${lead.area}: ${lead.key}.`;
+  if (others.length) t += ` Smaller differences: ${others.map((x) => x.area).join('; ')}.`;
+  return t;
+}
+
+export interface GlanceRow {
+  cards: Card[];
+  live: Card[];
+  gone: Card[];
+  cost: number;
+  /** cards in this combination that also belong to another one */
+  shared: Card[];
+}
+
+/**
+ * The two-card combinations among your loose cards, weakest first (fewest live cards,
+ * then highest cost). Made melds are left out. Used when every card seems to belong somewhere.
+ */
+export function handGlance(hand: readonly Card[], st: Uint8Array): { melds: Card[][]; rows: GlanceRow[] } {
+  const a = arrange(hand);
+  const inMeld = new Set(a.melds.flat());
+  const loose = hand.filter((c) => !inMeld.has(c)).sort((x, y) => x - y);
+  const rows: GlanceRow[] = [];
+  const has = new Set(hand);
+  for (let i = 0; i < loose.length; i++) {
+    for (let j = i + 1; j < loose.length; j++) {
+      const x = loose[i];
+      const y = loose[j];
+      const need: Card[] = [];
+      if (x % 13 === y % 13) {
+        for (let s2 = 0; s2 < 4; s2++) {
+          const c = s2 * 13 + (x % 13);
+          if (!has.has(c)) need.push(c);
+        }
+      } else if (((x / 13) | 0) === ((y / 13) | 0)) {
+        const lo = Math.min(x % 13, y % 13);
+        const hi = Math.max(x % 13, y % 13);
+        const base = x - (x % 13);
+        if (hi - lo === 1) {
+          if (lo > 0) need.push(base + lo - 1);
+          if (hi < 12) need.push(base + hi + 1);
+        } else if (hi - lo === 2) need.push(base + lo + 1);
+        else continue;
+      } else continue;
+      const open = need.filter((c) => !has.has(c));
+      rows.push({ cards: [x, y], live: open.filter((c) => st[c] === UNSEEN), gone: open.filter((c) => st[c] !== UNSEEN), cost: VALUE[x] + VALUE[y], shared: [] });
+    }
+  }
+  const count = new Map<Card, number>();
+  for (const r of rows) for (const c of r.cards) count.set(c, (count.get(c) ?? 0) + 1);
+  for (const r of rows) r.shared = r.cards.filter((c) => (count.get(c) ?? 0) > 1);
+  rows.sort((p, q) => p.live.length - q.live.length || q.cost - p.cost);
+  return { melds: a.melds, rows };
+}
+
 /** The four checks comparing discarding `a` with discarding `b` from the same 11-card hand. Biggest difference first. */
 export function compareDiscards(s: HandState, p: number, st: Uint8Array, a: Card, b: Card): WhySection[] {
   const hand = s.hands[p];
@@ -250,12 +347,25 @@ export function compareDiscards(s: HandState, p: number, st: Uint8Array, a: Card
       weight: Math.abs(outsA - outsB) * 2,
       // keeping the card with more outs is better, so throwing the one with fewer outs is favoured
       favours: outsA < outsB ? 1 : outsA > outsB ? -1 : 0,
+      area: 'how much each card could still improve',
+      key: improveKey(a, ia, b, ib, outsA, outsB),
+      even:
+        ia.inMeld && ib.inMeld
+          ? 'both cards are in melds'
+          : ia.outs.length === ib.outs.length
+            ? ia.outs.length === 0
+              ? 'neither card can still be melded'
+              : `each has ${plural(ia.outs.length, 'live card')} that would meld it`
+            : 'their chances to improve are about the same',
     },
     {
       title: 'How safe each discard is',
       lines: [safetyLine(a, sa), safetyLine(b, sb)],
       weight: Math.abs(sa.score - sb.score) * 1.5,
       favours: sa.score < sb.score ? 1 : sa.score > sb.score ? -1 : 0,
+      area: 'safety',
+      key: safetyKey(a, sa, b, sb),
+      even: 'they are about equally safe to throw',
     },
     {
       title: 'What each costs if your opponent goes out',
@@ -267,12 +377,21 @@ export function compareDiscards(s: HandState, p: number, st: Uint8Array, a: Card
       ],
       weight: Math.abs(VALUE[a] - VALUE[b]),
       favours: VALUE[a] > VALUE[b] ? 1 : VALUE[a] < VALUE[b] ? -1 : 0,
+      area: 'cost',
+      key: costKey(a, b, s.knockLimit),
+      even: `both cost ${VALUE[a]}`,
     },
     {
       title: s.knockLimit === 0 ? 'Your gin chances afterwards' : 'Your knock and gin chances afterwards',
       lines: [knockLine(a, ka, s.knockLimit), knockLine(b, kb, s.knockLimit)],
       weight: Math.abs(ka.knockDraws.length - kb.knockDraws.length) * 2 + Math.abs(ka.ginDraws.length - kb.ginDraws.length) * 3,
       favours: ka.knockDraws.length + ka.ginDraws.length > kb.knockDraws.length + kb.ginDraws.length ? 1 : ka.knockDraws.length + ka.ginDraws.length < kb.knockDraws.length + kb.ginDraws.length ? -1 : 0,
+      area: s.knockLimit === 0 ? 'your gin chances' : 'how quickly you could knock',
+      key: knockKey(a, ka, b, kb, s.knockLimit),
+      even:
+        ka.knockDraws.length === 0 && kb.knockDraws.length === 0
+          ? `neither leaves you a ${s.knockLimit === 0 ? 'gin' : 'knock'} next turn`
+          : `both leave the same chances to ${s.knockLimit === 0 ? 'go gin' : 'knock'} next turn`,
     },
   ];
   return sections.sort((x, y) => y.weight - x.weight);

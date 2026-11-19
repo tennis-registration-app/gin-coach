@@ -90,6 +90,39 @@ function describeResult(r: HandResult, winnerName: string, loserName: string): s
   }
 }
 
+function Glance({ g }: { g: NonNullable<DecisionRecord['glance']> }) {
+  return (
+    <details className="glance">
+      <summary>Your hand at a glance</summary>
+      <p className="whyhead">
+        {g.melds.length ? `Made: ${g.melds.join('; ')}. ` : ''}The two-card combinations among your other cards, weakest first. A ten-card hand has room for three melds at most, so some of these will have to be broken.
+        {g.rows.some((r) => r.shared) ? ' A card marked * belongs to more than one combination, so only one of them can use it.' : ''}
+      </p>
+      <table className="numbers glancetable">
+        <thead>
+          <tr>
+            <th>Combination</th>
+            <th>Live cards that complete it</th>
+            <th>Cost</th>
+          </tr>
+        </thead>
+        <tbody>
+          {g.rows.map((r) => (
+            <tr key={r.cards}>
+              <td>{r.cards}</td>
+              <td>
+                {r.live}
+                {r.gone ? <span className="gone"> (gone: {r.gone})</span> : null}
+              </td>
+              <td>{r.cost}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </details>
+  );
+}
+
 function CoachCard({ rec, showNumbers, reveal }: { rec: DecisionRecord; showNumbers?: boolean; reveal?: boolean }) {
   const [open, setOpen] = useState(!!showNumbers);
   const [why, setWhy] = useState(false);
@@ -98,6 +131,7 @@ function CoachCard({ rec, showNumbers, reveal }: { rec: DecisionRecord; showNumb
   return (
     <div className={`coach ${tone}`}>
       <p className="headline">{rec.headline}</p>
+      {rec.key && !rec.flagged && <p className="keypoint">{rec.key}</p>}
       {rec.reasons.map((r, i) => (
         <p key={i}>{r}</p>
       ))}
@@ -124,6 +158,13 @@ function CoachCard({ rec, showNumbers, reveal }: { rec: DecisionRecord; showNumb
               ))}
             </section>
           ))}
+          {rec.flagged && rec.key && (
+            <section>
+              <h3>Key point</h3>
+              <p>{rec.key}</p>
+            </section>
+          )}
+          {rec.glance && <Glance g={rec.glance} />}
           {reveal && rec.hindsight && rec.hindsight.length > 0 && (
             <section>
               <h3>What the hidden cards showed</h3>
@@ -180,6 +221,7 @@ function PreviewCard({ title, v, knock }: { title: string; v: ReturnType<Session
       <p className="headline">
         {title}: {rate(v)}.
       </p>
+      {v.key && <p className="keypoint">{v.key}</p>}
       {knock && (
         <p>
           Knocking with this discard instead: {rate(knock)}. Expected {signed(knock.chosen.ev)} against {signed(v.chosen.ev)} for playing on.
@@ -187,6 +229,7 @@ function PreviewCard({ title, v, knock }: { title: string; v: ReturnType<Session
       )}
       {v.why.length > 0 && (
         <div className="why open">
+          {v.glance && <Glance g={v.glance} />}
           <p className="whyhead">Compared with: {lowerFirst(v.versus)}</p>
           {v.why.map((sec) => (
             <section key={sec.title}>

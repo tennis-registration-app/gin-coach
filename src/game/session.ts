@@ -42,6 +42,8 @@ export interface DecisionRecord {
   /** the checks behind the verdict, and the play they compare yours against */
   why?: { title: string; lines: string[] }[];
   versus?: string;
+  key?: string;
+  glance?: Verdict['glance'];
   /** what the hidden cards showed; only displayed once the hand is over */
   hindsight?: string[];
   /** you took this play back and tried again (it still counts in your statistics) */
@@ -297,6 +299,8 @@ export class Session {
       reasons: v.reasons,
       why: v.why,
       versus: v.versus,
+      key: v.key,
+      glance: v.glance,
       hindsight: this.hindsightFor(a, v),
       retry: this.retrying || undefined,
       state: v.flagged ? saveState(s) : undefined,

@@ -2,7 +2,7 @@ import { type Card, VALUE, cardName } from '../engine/cards';
 import { type Action, HandState } from '../engine/hand';
 import { arrange, deadwood, discardDeadwoods } from '../engine/melds';
 import { UNSEEN, cardStatus } from '../bots/policy';
-import { compareDiscards, knockCheck, realOuts, type WhySection } from './facts';
+import { compareDiscards, handGlance, keyPoint, knockCheck, realOuts, type WhySection } from './facts';
 import { type Models } from '../bots/learned';
 import { NK, NV, kFeatures, makeCtx, vFeatures, type Ctx } from './features';
 import { DEFAULT_WEIGHTS, holdWeights, sameAction } from './mc';
@@ -72,6 +72,10 @@ export interface Verdict {
   why: { title: string; lines: string[] }[];
   /** the play the checks compare yours against */
   versus: string;
+  /** one sentence naming the check that decides between the two plays */
+  key?: string;
+  /** combinations among your loose cards, weakest first (discard decisions with several combinations) */
+  glance?: { melds: string[]; rows: { cards: string; live: string; gone: string; cost: number; shared: boolean }[] };
   /** near-equal alternatives to the best play (within the margin of error) */
   ties: string[];
   /** game-win chance given up, in percentage points, when the score mattered */
@@ -364,6 +368,15 @@ export function judge(s: HandState, an: Analysis, userAction: Action, useMatch =
   const v: Verdict = { chosen, best, loss: same ? 0 : loss, margin, flagged, tooClose, category: null, headline: '', reasons: [], why: [], versus: '', ties, equityLoss, usedMatchScore };
   const st = cardStatus(s, p).slice();
 
+  if (an.kind === 'discard') {
+    const g = handGlance(s.hands[p], st);
+    if (g.rows.length >= 3) {
+      v.glance = {
+        melds: g.melds.map((mm) => cardList(mm)),
+        rows: g.rows.map((r) => ({ cards: r.cards.map((c) => cardName(c) + (r.shared.includes(c) ? '*' : '')).join(' '), live: cardList(r.live) || 'none', gone: cardList(r.gone), cost: r.cost, shared: r.shared.length > 0 })),
+      };
+    }
+  }
   // the play to compare yours against: the coach's best, or the runner-up when you found the best
   const other = same ? an.options.find((o) => o !== chosen) : best;
   let sections: WhySection[] = [];
@@ -380,6 +393,9 @@ export function judge(s: HandState, an: Analysis, userAction: Action, useMatch =
     } else if (chosen.action.type === 'discard' && other.action.type === 'discard' && chosen.action.card !== other.action.card) {
       sections = compareDiscards(s, p, st, chosen.action.card, other.action.card);
       v.why = sections.map(({ title, lines }) => ({ title, lines }));
+      v.key = keyPoint(sections);
+      const { diff: dd, margin: mm } = diffStats(best, chosen);
+      if (!same && !flagged && dd <= Math.max(1, mm)) v.key += ' The coach rates the two plays close; either is fine.';
       // say plainly how the checks line up, so the panel never appears to argue against its own verdict
       const short = (t: string) => t[0].toLowerCase() + t.slice(1);
       const forYou = sections.filter((x) => x.favours === 1 && x.weight > 0).map((x) => short(x.title));

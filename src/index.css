@@ -509,6 +509,27 @@ p {
   margin-top: 0;
   padding-top: 0;
 }
+.keypoint {
+  font-weight: 600;
+}
+.glance {
+  margin: 8px 0;
+}
+.glance summary {
+  cursor: pointer;
+  font-family: var(--display);
+  font-weight: 600;
+}
+.glancetable td:nth-child(2) {
+  text-align: left;
+}
+.glancetable td:last-child,
+.glancetable th:last-child {
+  text-align: right;
+}
+.glance .gone {
+  color: #6d675a;
+}
 .coachlinks {
   display: flex;
   gap: 18px;

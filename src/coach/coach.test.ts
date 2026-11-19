@@ -255,6 +255,22 @@ describe('coach', () => {
     expect(tally).not.toMatch(/comes down on the side/);
   });
 
+  it('leads with the key point and lists the hand at a glance (alpha hand 7)', () => {
+    const s = stateWith('Ts Js Kh Jd Kd 9h 4h 4c 3c Ac', '8h', '7s');
+    const v = judge(s, analyze(s, m), { type: 'discard', card: P('Ts')[0], knock: false });
+    expect(v.key).toBeTruthy();
+    // cost is even (both 10), so the key point must not name cost as the difference
+    expect(v.key!).toMatch(/both cost 10/);
+    expect(v.key!).not.toMatch(/main difference is cost/);
+    expect(v.glance!.rows.length).toBeGreaterThanOrEqual(5);
+    const rows = v.glance!.rows;
+    // weakest first: live-card counts never decrease down the table
+    const counts = rows.map((r) => (r.live === 'none' ? 0 : r.live.split(', ').length));
+    for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeGreaterThanOrEqual(counts[i - 1]);
+    // the jack of spades sits in two combinations
+    expect(rows.some((r) => r.cards.includes('J♠︎*'))).toBe(true);
+  });
+
   it('game-win table is sane', () => {
     const T = HOUSE_RULES.target;
     expect(gameWinChance(0, 0, T)).toBeCloseTo(0.5, 1);

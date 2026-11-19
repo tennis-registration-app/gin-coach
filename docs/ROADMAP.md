@@ -82,6 +82,7 @@ Items collected before and during alpha testing. Order and scope will be set onc
 - Phase 2: explore mode (the coach rates a discard when you tap the card, and both draw options at a draw decision), take back a flagged play, aided hands reported separately in Progress.
 - Phase 3: card-tracking help in three levels (open pile, counted check, none with a memory question), with results by level in Progress.
 - Phase 4: Practice tab with drills (knock or play on, choose the discard, take or draw, a mix weighted toward your leaks, and replay of your own flagged mistakes) and four data tables from the trained coach.
+- Key point: one sentence at the top of every discard verdict naming the check that decides it and the checks that are even. Your hand at a glance: the two-card combinations among your loose cards, weakest first, with live and gone cards.
 
 ## Dropped
 
