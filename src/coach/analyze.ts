@@ -2,7 +2,7 @@ import { type Card, VALUE, cardName } from '../engine/cards';
 import { type Action, HandState } from '../engine/hand';
 import { arrange, deadwood, discardDeadwoods } from '../engine/melds';
 import { UNSEEN, cardStatus } from '../bots/policy';
-import { compareDiscards, handGlance, keyPoint, knockCheck, realOuts, type WhySection } from './facts';
+import { combosWith, compareDiscards, handGlance, keyPoint, knockCheck, realOuts, type WhySection } from './facts';
 import { type Models } from '../bots/learned';
 import { NK, NV, kFeatures, makeCtx, vFeatures, type Ctx } from './features';
 import { DEFAULT_WEIGHTS, holdWeights, sameAction } from './mc';
@@ -36,6 +36,8 @@ export interface OptionEval {
   deadwoodAfter?: number;
   /** true when the value is a nominal figure rather than a model estimate (gin, big gin) */
   nominal?: boolean;
+  /** for taking the pile card: the discard the coach would make afterwards */
+  then?: Action;
 }
 
 export interface MatchContext {
@@ -207,7 +209,7 @@ export function analyze(s: HandState, m: Models, mc?: MatchContext): Analysis {
       const top = s.topDiscard;
       const ctxT: Ctx = { ...ctx, myKnown: ctx.myKnown + 1 };
       const bestAfter = discardOptions([...hand, top], top, ctxT, m, s.rules, -1, false)[0];
-      options.push({ ...bestAfter, action: { type: 'take' }, label: actionLabel({ type: 'take' }, s), deadwoodAfter: bestAfter.deadwoodAfter });
+      options.push({ ...bestAfter, action: { type: 'take' }, label: actionLabel({ type: 'take' }, s), deadwoodAfter: bestAfter.deadwoodAfter, then: bestAfter.action });
     }
     options.sort((a, b) => b.ev - a.ev);
   } else {
@@ -302,16 +304,27 @@ function drawSections(s: HandState, st: Uint8Array, take: OptionEval | undefined
   const d0 = deadwood(hand);
   if (take && top >= 0) {
     const fit = pileCardFit(hand, top);
-    const lines = [
-      fit.kind === 'new'
-        ? `The ${cardName(top)} gives you a new meld (${cardList(fit.joins)}) without disturbing your other cards.`
-        : fit.kind === 'swap'
-          ? `The ${cardName(top)} makes ${cardList(fit.joins)}, but only by breaking up your ${cardList(fit.breaks)}. You trade one meld for another instead of adding one.`
-          : `The ${cardName(top)} does not complete a meld.`,
-      `Your deadwood would go from ${d0} to ${take.deadwoodAfter ?? '?'} after your discard${take.deadwoodAfter !== undefined && take.deadwoodAfter <= s.knockLimit ? ', enough to knock' : ''}.`,
-      'Your opponent sees which card you took.',
-      `Average result ${pts(take.ev)}.`,
-    ];
+    const lines: string[] = [];
+    if (fit.kind === 'new') lines.push(`The ${cardName(top)} gives you a new meld (${cardList(fit.joins)}) without disturbing your other cards.`);
+    else if (fit.kind === 'swap') lines.push(`The ${cardName(top)} makes ${cardList(fit.joins)}, but only by breaking up your ${cardList(fit.breaks)}. You trade one meld for another instead of adding one.`);
+    else {
+      const combos = combosWith(hand, top, st).filter((c) => c.live.length > 0);
+      if (combos.length === 0) lines.push(`The ${cardName(top)} does not complete a meld or start one with anything in your hand.`);
+      else
+        lines.push(
+          `The ${cardName(top)} does not complete a meld, but it starts ${combos.length === 1 ? 'one' : combos.length === 2 ? 'two' : combos.length}: ${combos
+            .map((c) => `with your ${cardName(c.partner)} (${cardList(c.live)} would complete it)`)
+            .join('; and ')}.`,
+        );
+    }
+    const then = take.then && take.then.type === 'discard' ? take.then.card : -1;
+    if (then >= 0) {
+      const lonely = combosWith(hand.filter((c) => c !== then), then, st).every((c) => c.live.length === 0) && deadwood(hand) === deadwood(hand.filter((c) => c !== then)) + VALUE[then];
+      lines.push(
+        `The coach's plan: take it and discard the ${cardName(then)}${lonely ? ', which works with nothing else in your hand' : ''}. Your deadwood goes from ${d0} to ${take.deadwoodAfter ?? '?'}${take.deadwoodAfter !== undefined && take.deadwoodAfter > d0 ? ', higher for now, in exchange for more ways to make melds' : ''}${take.deadwoodAfter !== undefined && take.deadwoodAfter <= s.knockLimit ? ', enough to knock' : ''}.`,
+      );
+    } else lines.push(`Your deadwood would go from ${d0} to ${take.deadwoodAfter ?? '?'} after your discard${take.deadwoodAfter !== undefined && take.deadwoodAfter <= s.knockLimit ? ', enough to knock' : ''}.`);
+    lines.push('Your opponent sees which card you took.', `Average result ${pts(take.ev)}.`);
     out.push({ title: `Taking the ${cardName(top)}`, lines });
   }
   let unseen = 0;

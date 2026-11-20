@@ -271,6 +271,28 @@ describe('coach', () => {
     expect(rows.some((r) => r.cards.includes('J♠︎*'))).toBe(true);
   });
 
+  it('explains a pickup that starts combinations and names the planned discard (alpha hand 8)', () => {
+    const hand = P('4s 4d 4c Th Jd Kd 6d 5h 2d 2c');
+    const pile = P('7c 9c Jh');
+    const rest = allCards().filter((c) => !hand.includes(c) && !pile.includes(c));
+    const s = new HandState(HOUSE_RULES);
+    s.hands = [hand.slice(), rest.slice(0, 10)];
+    s.stock = rest.slice(10, 39);
+    s.discard = pile.slice();
+    s.discardBy = [-1, 0, 1];
+    s.upcard = P('7c')[0];
+    s.setKnockLimit();
+    s.dealer = 1;
+    s.turn = 0;
+    s.phase = 'draw';
+    s.opening = 3;
+    const an = analyze(s, m);
+    const v = judge(s, an, { type: 'take' });
+    const text = v.why.flatMap((w) => w.lines).join(' ');
+    expect(text).toMatch(/starts two: with your 10♥︎ .*9♥︎, Q♥︎.*with your J♦︎ .*J♠︎, J♣︎/);
+    expect(text).toMatch(/The coach's plan: take it and discard the /);
+  });
+
   it('game-win table is sane', () => {
     const T = HOUSE_RULES.target;
     expect(gameWinChance(0, 0, T)).toBeCloseTo(0.5, 1);

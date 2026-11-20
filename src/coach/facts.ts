@@ -265,6 +265,31 @@ function knockKey(a: Card, ka: KnockCheck, b: Card, kb: KnockCheck, limit: numbe
   return `throwing the ${cardName(better)} leaves ${plural(kbest.knockDraws.length, 'card')} that would let you ${word} next turn, against ${kworse.knockDraws.length} after throwing the ${cardName(worse)}`;
 }
 
+/** Two-card combinations a new card would start with cards in your hand, and the live cards that would complete each. */
+export function combosWith(hand: readonly Card[], x: Card, st: Uint8Array): { partner: Card; live: Card[] }[] {
+  const has = new Set(hand);
+  const made = new Set(arrange(hand).melds.flat());
+  const out: { partner: Card; live: Card[] }[] = [];
+  for (const y of hand) {
+    if (made.has(y)) continue;
+    const need: Card[] = [];
+    if (y % 13 === x % 13) {
+      for (let s2 = 0; s2 < 4; s2++) need.push(s2 * 13 + (x % 13));
+    } else if (((x / 13) | 0) === ((y / 13) | 0)) {
+      const lo = Math.min(x % 13, y % 13);
+      const hi = Math.max(x % 13, y % 13);
+      const base = x - (x % 13);
+      if (hi - lo === 1) {
+        if (lo > 0) need.push(base + lo - 1);
+        if (hi < 12) need.push(base + hi + 1);
+      } else if (hi - lo === 2) need.push(base + lo + 1);
+      else continue;
+    } else continue;
+    out.push({ partner: y, live: need.filter((c) => c !== x && !has.has(c) && st[c] === UNSEEN) });
+  }
+  return out;
+}
+
 /** One-sentence summary: what the two plays share, and the check that separates them. */
 export function keyPoint(sections: WhySection[]): string {
   const lead = sections.filter((x) => x.favours !== 0 && x.weight > 0).sort((x, y) => y.weight - x.weight)[0];
